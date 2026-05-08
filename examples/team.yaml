@@ -1,0 +1,29 @@
+team:
+  name: "backend-team"
+  goal: "Build and maintain backend services"
+  workflow: hierarchical
+  lead: "senior"
+  max_rounds: 10
+
+agents:
+  - name: "senior"
+    role: senior
+    model: claude-sonnet-4-20250514
+    host: https://api.anthropic.com
+    api_key: ${ANTHROPIC_API_KEY}
+    max_tokens: 4096
+    rules:
+      - "Break down tasks and delegate to junior"
+      - "Review junior's output before marking done"
+      - "Handle architecture decisions directly"
+
+  - name: "junior"
+    role: junior
+    model: deepseek-chat
+    host: https://api.deepseek.com/v1
+    api_key: ${DEEPSEEK_API_KEY}
+    max_tokens: 2048
+    rules:
+      - "Execute tasks assigned by senior"
+      - "Ask senior when requirements unclear"
+      - "Write tests for all code"
