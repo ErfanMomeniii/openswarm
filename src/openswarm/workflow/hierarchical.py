@@ -8,7 +8,7 @@ import logging
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
-from openswarm.workflow.base import Workflow
+from openswarm.workflow.base import MessageCallback, Workflow
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,13 @@ class HierarchicalWorkflow(Workflow):
         team: Team,
         max_rounds: int,
         message_log: list[Message],
+        on_message: MessageCallback | None = None,
     ) -> str:
+        def _log(msg: Message) -> None:
+            message_log.append(msg)
+            if on_message is not None:
+                on_message(msg)
+
         lead = team.lead
         available_agents = [n for n in team.agent_names if n != lead.name]
 
@@ -44,7 +50,7 @@ class HierarchicalWorkflow(Workflow):
             type=MessageType.TASK,
             content=f"{task.description}\n\nAvailable team members: {', '.join(available_agents)}",
         )
-        message_log.append(initial_msg)
+        _log(initial_msg)
 
         current_msg = initial_msg
         target_agent = lead
@@ -72,7 +78,7 @@ class HierarchicalWorkflow(Workflow):
                     type=MessageType.RESULT,
                     content=raw_response,
                 )
-                message_log.append(result_msg)
+                _log(result_msg)
                 current_msg = result_msg
                 target_agent = lead
                 continue
@@ -97,7 +103,7 @@ class HierarchicalWorkflow(Workflow):
                         type=MessageType.RESULT,
                         content=f"Error: Agent '{worker_name}' not found. Available: {', '.join(available_agents)}",
                     )
-                    message_log.append(error_msg)
+                    _log(error_msg)
                     current_msg = error_msg
                     target_agent = lead
                     continue
@@ -108,7 +114,7 @@ class HierarchicalWorkflow(Workflow):
                     type=MessageType.TASK,
                     content=subtask_desc,
                 )
-                message_log.append(delegate_msg)
+                _log(delegate_msg)
                 current_msg = delegate_msg
                 target_agent = team.get_agent(worker_name)
 
@@ -122,7 +128,7 @@ class HierarchicalWorkflow(Workflow):
                     type=MessageType.QUESTION,
                     content=question_content,
                 )
-                message_log.append(question_msg)
+                _log(question_msg)
                 current_msg = question_msg
                 target_agent = team.get_agent(worker_name)
 
@@ -135,7 +141,7 @@ class HierarchicalWorkflow(Workflow):
                     type=response_type,
                     content=parsed.get("content", ""),
                 )
-                message_log.append(result_msg)
+                _log(result_msg)
                 current_msg = result_msg
                 target_agent = lead
 
@@ -148,7 +154,7 @@ class HierarchicalWorkflow(Workflow):
                     type=MessageType.RESULT,
                     content=raw_response,
                 )
-                message_log.append(fallback_msg)
+                _log(fallback_msg)
                 current_msg = fallback_msg
                 target_agent = lead
 

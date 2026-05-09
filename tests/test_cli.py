@@ -1,0 +1,77 @@
+"""Tests for CLI invocation."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import patch
+
+from typer.testing import CliRunner
+
+from openswarm.cli.app import app
+
+from conftest import SAMPLE_YAML, mock_acompletion, make_llm_response
+
+runner = CliRunner()
+
+
+def test_run_with_config(tmp_path: Path):
+    config_file = tmp_path / "team.yaml"
+    config_file.write_text(SAMPLE_YAML)
+
+    lead_respond = make_llm_response({"action": "respond", "content": "CLI test done"})
+    mock = mock_acompletion(lead_respond)
+
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = runner.invoke(app, ["run", "Do something", "--config", str(config_file)])
+
+    assert result.exit_code == 0
+    assert "CLI test done" in result.output
+
+
+def test_run_missing_config():
+    result = runner.invoke(app, ["run", "Do something", "--config", "/nonexistent.yaml"])
+    assert result.exit_code == 1
+
+
+def test_run_no_config_no_team():
+    result = runner.invoke(app, ["run", "Do something"])
+    assert result.exit_code == 1
+
+
+def test_run_both_config_and_team(tmp_path: Path):
+    config_file = tmp_path / "team.yaml"
+    config_file.write_text(SAMPLE_YAML)
+    result = runner.invoke(
+        app, ["run", "Do something", "--config", str(config_file), "--team", "foo"]
+    )
+    assert result.exit_code == 1
+
+
+def test_run_with_team(tmp_path: Path, monkeypatch):
+    teams_dir = tmp_path / "teams"
+    teams_dir.mkdir()
+    config_file = teams_dir / "myteam.yaml"
+    config_file.write_text(SAMPLE_YAML)
+
+    monkeypatch.setenv("OPENSWARM_CONFIG_DIR", str(tmp_path))
+
+    lead_respond = make_llm_response({"action": "respond", "content": "team lookup works"})
+    mock = mock_acompletion(lead_respond)
+
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = runner.invoke(app, ["run", "Do something", "--team", "myteam"])
+
+    assert result.exit_code == 0
+    assert "team lookup works" in result.output
+
+
+def test_run_with_team_not_found(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENSWARM_CONFIG_DIR", str(tmp_path))
+    result = runner.invoke(app, ["run", "Do something", "--team", "nope"])
+    assert result.exit_code == 1
+
+
+def test_help():
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "run" in result.output.lower()
