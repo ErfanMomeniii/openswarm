@@ -5,8 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from openswarm.config.loader import load_config
+from openswarm.config.models import AgentConfig, TeamConfig, WorkflowConfig
 
 
 def test_load_valid_yaml(sample_yaml_file: Path):
@@ -51,3 +53,64 @@ def test_agent_lookup_on_config(sample_yaml_file: Path):
     assert agent.name == "lead"
     with pytest.raises(ValueError, match="not found"):
         config.get_agent("nonexistent")
+
+
+# --- Config validation ---
+
+
+def test_lead_must_exist_in_agents():
+    with pytest.raises(ValidationError, match="not found in agents"):
+        TeamConfig(
+            name="bad",
+            goal="test",
+            workflow=WorkflowConfig(type="hierarchical", lead="ghost"),
+            agents=[
+                AgentConfig(name="alice", role="dev", model="m", host="h", api_key="k"),
+            ],
+        )
+
+
+def test_hierarchical_requires_lead():
+    with pytest.raises(ValidationError, match="requires a 'lead'"):
+        TeamConfig(
+            name="bad",
+            goal="test",
+            workflow=WorkflowConfig(type="hierarchical"),
+            agents=[
+                AgentConfig(name="alice", role="dev", model="m", host="h", api_key="k"),
+            ],
+        )
+
+
+def test_pipeline_no_lead_required():
+    config = TeamConfig(
+        name="ok",
+        goal="test",
+        workflow=WorkflowConfig(type="pipeline"),
+        agents=[
+            AgentConfig(name="alice", role="dev", model="m", host="h", api_key="k"),
+        ],
+    )
+    assert config.workflow.lead is None
+
+
+def test_max_tokens_must_be_positive():
+    with pytest.raises(ValidationError, match="max_tokens must be >= 1"):
+        AgentConfig(name="x", role="x", model="m", host="h", api_key="k", max_tokens=0)
+
+
+def test_temperature_bounds():
+    with pytest.raises(ValidationError, match="temperature must be between"):
+        AgentConfig(name="x", role="x", model="m", host="h", api_key="k", temperature=-0.1)
+    with pytest.raises(ValidationError, match="temperature must be between"):
+        AgentConfig(name="x", role="x", model="m", host="h", api_key="k", temperature=2.1)
+
+
+def test_temperature_valid_range():
+    a = AgentConfig(name="x", role="x", model="m", host="h", api_key="k", temperature=1.5)
+    assert a.temperature == 1.5
+
+
+def test_temperature_default():
+    a = AgentConfig(name="x", role="x", model="m", host="h", api_key="k")
+    assert a.temperature == 0.7

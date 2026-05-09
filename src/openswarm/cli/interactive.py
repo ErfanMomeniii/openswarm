@@ -84,6 +84,8 @@ def _handle_slash_command(
 
     if cmd == "/clear":
         orchestrator.message_log.clear()
+        for agent in orchestrator.team.agents.values():
+            agent.clear_history()
         console.print("[dim]Message history cleared.[/dim]\n")
         return False
 

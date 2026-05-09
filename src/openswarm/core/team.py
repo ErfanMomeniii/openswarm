@@ -18,6 +18,8 @@ class Team:
     @property
     def lead(self) -> Agent:
         lead_name = self.config.workflow.lead
+        if lead_name is None:
+            raise ValueError("No lead agent configured for this workflow")
         if lead_name not in self.agents:
             raise ValueError(f"Lead agent '{lead_name}' not found in team")
         return self.agents[lead_name]

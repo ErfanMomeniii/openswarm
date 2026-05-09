@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class AgentConfig(BaseModel):
@@ -14,14 +14,29 @@ class AgentConfig(BaseModel):
     host: str
     api_key: str
     max_tokens: int = 4096
+    temperature: float = 0.7
     rules: list[str] = Field(default_factory=list)
+
+    @field_validator("max_tokens")
+    @classmethod
+    def max_tokens_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("max_tokens must be >= 1")
+        return v
+
+    @field_validator("temperature")
+    @classmethod
+    def temperature_range(cls, v: float) -> float:
+        if v < 0.0 or v > 2.0:
+            raise ValueError("temperature must be between 0.0 and 2.0")
+        return v
 
 
 class WorkflowConfig(BaseModel):
     """Workflow settings within a team config."""
 
     type: str = "hierarchical"
-    lead: str
+    lead: str | None = None
     max_rounds: int = 10
 
 
@@ -32,6 +47,18 @@ class TeamConfig(BaseModel):
     goal: str
     workflow: WorkflowConfig
     agents: list[AgentConfig]
+
+    @model_validator(mode="after")
+    def validate_lead_exists(self) -> TeamConfig:
+        if self.workflow.type == "hierarchical":
+            if self.workflow.lead is None:
+                raise ValueError("Hierarchical workflow requires a 'lead' agent")
+            agent_names = [a.name for a in self.agents]
+            if self.workflow.lead not in agent_names:
+                raise ValueError(
+                    f"Lead agent '{self.workflow.lead}' not found in agents: {agent_names}"
+                )
+        return self
 
     def get_agent(self, name: str) -> AgentConfig:
         for agent in self.agents:

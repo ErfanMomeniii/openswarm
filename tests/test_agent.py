@@ -1,4 +1,4 @@
-"""Tests for Agent system prompt and respond()."""
+"""Tests for Agent system prompt, respond(), and history trimming."""
 
 from __future__ import annotations
 
@@ -52,6 +52,12 @@ def test_non_lead_prompt_no_lead_text(agent: Agent):
     assert "you are the lead agent" not in prompt.lower()
 
 
+def test_system_prompt_contains_review_action(agent: Agent):
+    prompt = agent._build_system_prompt()
+    assert '"action": "review"' in prompt
+    assert '"action": "revision"' in prompt
+
+
 @pytest.mark.asyncio
 async def test_respond_calls_llm(agent: Agent):
     msg = Message(
@@ -85,3 +91,30 @@ async def test_respond_appends_history(agent: Agent):
     assert len(agent.history) == 2  # user + assistant
     assert agent.history[0]["role"] == "user"
     assert agent.history[1]["role"] == "assistant"
+
+
+# --- History trimming ---
+
+
+def test_history_trimming(agent_config: AgentConfig):
+    agent = Agent(agent_config, max_history=4)
+    # Manually fill history beyond limit
+    for i in range(6):
+        agent.history.append({"role": "user", "content": f"msg {i}"})
+    agent._trim_history()
+    assert len(agent.history) == 4
+    assert agent.history[0]["content"] == "msg 2"
+
+
+def test_history_no_trim_under_limit(agent_config: AgentConfig):
+    agent = Agent(agent_config, max_history=10)
+    agent.history.append({"role": "user", "content": "msg"})
+    agent._trim_history()
+    assert len(agent.history) == 1
+
+
+def test_clear_history(agent: Agent):
+    agent.history.append({"role": "user", "content": "old"})
+    agent.history.append({"role": "assistant", "content": "old reply"})
+    agent.clear_history()
+    assert len(agent.history) == 0

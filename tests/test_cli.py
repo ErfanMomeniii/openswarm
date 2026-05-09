@@ -75,3 +75,45 @@ def test_help():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "run" in result.output.lower()
+
+
+# --- Team discovery commands ---
+
+
+def test_team_list_empty(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENSWARM_CONFIG_DIR", str(tmp_path))
+    result = runner.invoke(app, ["team-list"])
+    assert result.exit_code == 0
+    assert "No teams" in result.output
+
+
+def test_team_list_with_teams(tmp_path: Path, monkeypatch):
+    teams_dir = tmp_path / "teams"
+    teams_dir.mkdir()
+    (teams_dir / "backend.yaml").write_text(SAMPLE_YAML)
+
+    monkeypatch.setenv("OPENSWARM_CONFIG_DIR", str(tmp_path))
+    result = runner.invoke(app, ["team-list"])
+    assert result.exit_code == 0
+    assert "backend" in result.output
+    assert "Test goal" in result.output
+
+
+def test_team_info(tmp_path: Path, monkeypatch):
+    teams_dir = tmp_path / "teams"
+    teams_dir.mkdir()
+    (teams_dir / "backend.yaml").write_text(SAMPLE_YAML)
+
+    monkeypatch.setenv("OPENSWARM_CONFIG_DIR", str(tmp_path))
+    result = runner.invoke(app, ["team-info", "backend"])
+    assert result.exit_code == 0
+    assert "test-team" in result.output
+    assert "lead" in result.output
+    assert "worker" in result.output
+
+
+def test_team_info_not_found(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPENSWARM_CONFIG_DIR", str(tmp_path))
+    result = runner.invoke(app, ["team-info", "nope"])
+    assert result.exit_code == 1
+    assert "not found" in result.output

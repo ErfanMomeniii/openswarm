@@ -39,7 +39,7 @@ swarm run "Build a REST API" --config team.yaml
 # Run with named team (looks up ~/.openswarm/teams/<name>.yaml)
 swarm run "Fix the login bug" --team backend
 
-# Verbose — see all inter-agent messages
+# Verbose — see inter-agent messages in real-time
 swarm run "Refactor auth module" --config team.yaml -v
 
 # Interactive REPL — chat with your team
@@ -47,6 +47,12 @@ swarm interactive --team backend
 
 # Interactive with real-time message display
 swarm interactive --team backend -v
+
+# List all configured teams
+swarm team-list
+
+# Show team details
+swarm team-info backend
 
 # Run as module
 python -m openswarm run "Do the thing" --config team.yaml
@@ -67,7 +73,7 @@ Slash commands inside the REPL:
 | `/quit` | Exit |
 | `/team` | Show team info |
 | `/history` | Show message log |
-| `/clear` | Clear message history |
+| `/clear` | Clear message history and agent context |
 
 Ctrl+C cancels current task without exiting.
 
@@ -105,6 +111,7 @@ agents:
     host: https://api.anthropic.com
     api_key: ${ANTHROPIC_API_KEY}
     max_tokens: 4096
+    temperature: 0.7
     rules:
       - "Break down tasks and delegate to junior"
       - "Review output before marking done"
@@ -115,12 +122,24 @@ agents:
     host: https://api.deepseek.com/v1
     api_key: ${DEEPSEEK_API_KEY}
     max_tokens: 2048
+    temperature: 0.3
     rules:
       - "Execute assigned tasks"
       - "Write tests for all code"
 ```
 
-API keys use `${ENV_VAR}` syntax — never hardcoded.
+### Agent Config Fields
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `name` | required | Agent identifier |
+| `role` | required | Agent role description |
+| `model` | required | LLM model name |
+| `host` | required | API endpoint URL |
+| `api_key` | required | API key (supports `${ENV_VAR}` syntax) |
+| `max_tokens` | `4096` | Max tokens per response (≥ 1) |
+| `temperature` | `0.7` | Sampling temperature (0.0–2.0) |
+| `rules` | `[]` | Agent behavior rules |
 
 ## How It Works
 
@@ -132,7 +151,7 @@ Senior (Claude): decomposes task
   ├── "Write endpoints"  → Junior (DeepSeek)
   └── "Design JWT strategy" → Senior handles directly
   ↓
-Junior returns code → Senior reviews → approves or requests fixes
+Junior returns code → Senior reviews → requests fixes or approves
   ↓
 Final result → User
 ```
@@ -141,11 +160,42 @@ Final result → User
 
 | Type | How it works | Best for |
 |------|-------------|----------|
-| **hierarchical** | Lead delegates, reviews, assembles | Dev teams, review workflows |
-| pipeline | Sequential: A → B → C | Content pipelines, data processing |
+| **hierarchical** | Lead delegates, reviews, requests revisions, assembles | Dev teams, review workflows |
+| **pipeline** | Sequential: A → B → C — each agent transforms output | Content pipelines, data processing |
 | collaborative | All agents discuss → consensus | Brainstorming, code review |
 
-*Currently implemented: hierarchical. Pipeline and collaborative coming soon.*
+*Currently implemented: hierarchical, pipeline. Collaborative coming soon.*
+
+### Pipeline Workflow
+
+Sequential chain where each agent receives the previous agent's output:
+
+```yaml
+team:
+  name: "content-pipeline"
+  goal: "Write and polish articles"
+  workflow: pipeline
+
+agents:
+  - name: "writer"
+    role: writer
+    # ...
+  - name: "editor"
+    role: editor
+    # ...
+  - name: "reviewer"
+    role: reviewer
+    # ...
+```
+
+Agents execute in config list order. No lead required.
+
+## Error Handling
+
+- LLM calls retry once on transient errors (rate limits, timeouts, connection issues)
+- Permanent errors (bad API key, invalid model) fail immediately with a clear message
+- `swarm run` shows clean error output instead of tracebacks
+- Config validation catches problems at load time (missing lead agent, invalid temperature/token values)
 
 ## Environment Variables
 

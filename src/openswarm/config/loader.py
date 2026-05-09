@@ -59,7 +59,7 @@ def load_config(path: str | Path) -> TeamConfig:
 
     workflow = WorkflowConfig(
         type=team_section.get("workflow", "hierarchical"),
-        lead=team_section["lead"],
+        lead=team_section.get("lead"),
         max_rounds=team_section.get("max_rounds", 10),
     )
 

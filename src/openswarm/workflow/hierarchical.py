@@ -132,13 +132,44 @@ class HierarchicalWorkflow(Workflow):
                 current_msg = question_msg
                 target_agent = team.get_agent(worker_name)
 
-            elif action in ("result", "answer"):
-                # Worker sending result/answer back to lead
-                response_type = MessageType.RESULT if action == "result" else MessageType.ANSWER
+            elif action == "review":
+                # Lead sends review feedback to worker
+                worker_name = parsed.get("to", "")
+                review_content = parsed.get("content", "")
+                if worker_name not in team.agents:
+                    logger.warning(f"Lead tried to review unknown agent '{worker_name}'")
+                    error_msg = Message(
+                        from_agent="system",
+                        to_agent=lead.name,
+                        type=MessageType.RESULT,
+                        content=f"Error: Agent '{worker_name}' not found. Available: {', '.join(available_agents)}",
+                    )
+                    _log(error_msg)
+                    current_msg = error_msg
+                    target_agent = lead
+                    continue
+
+                review_msg = Message(
+                    from_agent=lead.name,
+                    to_agent=worker_name,
+                    type=MessageType.REVIEW,
+                    content=review_content,
+                )
+                _log(review_msg)
+                current_msg = review_msg
+                target_agent = team.get_agent(worker_name)
+
+            elif action in ("result", "answer", "revision"):
+                # Worker sending result/answer/revision back to lead
+                type_map = {
+                    "result": MessageType.RESULT,
+                    "answer": MessageType.ANSWER,
+                    "revision": MessageType.REVISION,
+                }
                 result_msg = Message(
                     from_agent=target_agent.name,
                     to_agent=lead.name,
-                    type=response_type,
+                    type=type_map[action],
                     content=parsed.get("content", ""),
                 )
                 _log(result_msg)

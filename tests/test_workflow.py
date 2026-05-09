@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from openswarm.config.models import TeamConfig
-from openswarm.core.message import Message
+from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
 from openswarm.workflow import get_workflow
@@ -165,3 +165,53 @@ async def test_workflow_unknown_agent_delegation(team_config: TeamConfig):
         result = await workflow.execute(task, team, max_rounds=10, message_log=message_log)
 
     assert "Fixed" in result
+
+
+# --- Review/revision cycle ---
+
+
+@pytest.mark.asyncio
+async def test_workflow_review_revision_cycle(team_config: TeamConfig):
+    """Lead delegates, reviews worker output, worker revises, lead responds."""
+    team = Team(team_config)
+    workflow = HierarchicalWorkflow()
+    task = Task(description="Code with review")
+    message_log: list[Message] = []
+
+    responses = [
+        make_llm_response({"action": "delegate", "to": "worker", "task": "Write code"}),
+        make_llm_response({"action": "result", "content": "first draft"}),
+        make_llm_response({"action": "review", "to": "worker", "content": "Fix error handling"}),
+        make_llm_response({"action": "revision", "content": "fixed version"}),
+        make_llm_response({"action": "respond", "content": "Approved. Final code."}),
+    ]
+
+    mock = mock_acompletion(*responses)
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await workflow.execute(task, team, max_rounds=10, message_log=message_log)
+
+    assert result == "Approved. Final code."
+    # Check review and revision messages exist in log
+    types = [m.type for m in message_log]
+    assert MessageType.REVIEW in types
+    assert MessageType.REVISION in types
+
+
+@pytest.mark.asyncio
+async def test_workflow_review_unknown_agent(team_config: TeamConfig):
+    """Lead tries to review nonexistent agent — recovers."""
+    team = Team(team_config)
+    workflow = HierarchicalWorkflow()
+    task = Task(description="Bad review")
+    message_log: list[Message] = []
+
+    responses = [
+        make_llm_response({"action": "review", "to": "ghost", "content": "Fix it"}),
+        make_llm_response({"action": "respond", "content": "Done anyway"}),
+    ]
+
+    mock = mock_acompletion(*responses)
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await workflow.execute(task, team, max_rounds=10, message_log=message_log)
+
+    assert result == "Done anyway"

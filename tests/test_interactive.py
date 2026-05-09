@@ -119,6 +119,24 @@ def test_slash_clear(team_config: TeamConfig):
     assert len(orch.message_log) == 0
 
 
+def test_slash_clear_resets_agent_histories(team_config: TeamConfig):
+    """'/clear' clears agent conversation histories too."""
+    from openswarm.cli.interactive import _handle_slash_command
+
+    team = Team(team_config)
+    orch = Orchestrator(team, HierarchicalWorkflow())
+
+    # Add some history to agents
+    for agent in team.agents.values():
+        agent.history.append({"role": "user", "content": "old msg"})
+        agent.history.append({"role": "assistant", "content": "old reply"})
+
+    _handle_slash_command("/clear", team, orch)
+
+    for agent in team.agents.values():
+        assert len(agent.history) == 0
+
+
 def test_slash_unknown(team_config: TeamConfig):
     from openswarm.cli.interactive import _handle_slash_command
 
