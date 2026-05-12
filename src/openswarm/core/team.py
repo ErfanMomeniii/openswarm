@@ -13,7 +13,9 @@ class Team:
         self.config = config
         self.agents: dict[str, Agent] = {}
         for agent_config in config.agents:
-            self.agents[agent_config.name] = Agent(agent_config)
+            self.agents[agent_config.name] = Agent(
+                agent_config, max_history=agent_config.max_history
+            )
 
     @property
     def lead(self) -> Agent:

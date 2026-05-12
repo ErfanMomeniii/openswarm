@@ -2,34 +2,16 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
+from openswarm.config.discovery import find_team_configs, get_config_dir
 from openswarm.config.loader import load_config
 from openswarm.core.orchestrator import Orchestrator
 from openswarm.core.team import Team
 from openswarm.workflow import get_workflow
 
 
-def _get_config_dir() -> Path:
-    return Path(os.environ.get("OPENSWARM_CONFIG_DIR", "~/.openswarm")).expanduser()
-
-
-def _find_team_configs() -> dict[str, Path]:
-    """Discover all team YAML files in the config directory."""
-    teams_dir = _get_config_dir() / "teams"
-    if not teams_dir.exists():
-        return {}
-    configs: dict[str, Path] = {}
-    for p in sorted(teams_dir.iterdir()):
-        if p.suffix in (".yaml", ".yml"):
-            configs[p.stem] = p
-    return configs
-
-
 async def run_task(task: str, team_name: str) -> str:
     """Run a task with a named team and return the result."""
-    configs = _find_team_configs()
+    configs = find_team_configs()
     if team_name not in configs:
         available = ", ".join(configs) if configs else "none"
         return f"Error: Team '{team_name}' not found. Available: {available}"
@@ -43,9 +25,9 @@ async def run_task(task: str, team_name: str) -> str:
 
 async def list_teams() -> str:
     """List all configured teams."""
-    configs = _find_team_configs()
+    configs = find_team_configs()
     if not configs:
-        return f"No teams found in {_get_config_dir() / 'teams'}"
+        return f"No teams found in {get_config_dir() / 'teams'}"
 
     lines = []
     for name, path in configs.items():
@@ -59,7 +41,7 @@ async def list_teams() -> str:
 
 async def team_info(team_name: str) -> str:
     """Show detailed info about a team."""
-    configs = _find_team_configs()
+    configs = find_team_configs()
     if team_name not in configs:
         available = ", ".join(configs) if configs else "none"
         return f"Error: Team '{team_name}' not found. Available: {available}"

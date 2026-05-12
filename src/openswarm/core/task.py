@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -18,7 +18,6 @@ class Task:
     status: TaskStatus = TaskStatus.PENDING
     assigned_to: str | None = None
     result: str | None = None
-    subtasks: list[Task] = field(default_factory=list)
 
     def assign(self, agent_name: str) -> None:
         self.assigned_to = agent_name

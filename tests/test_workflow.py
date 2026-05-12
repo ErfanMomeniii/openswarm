@@ -12,6 +12,7 @@ from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
 from openswarm.workflow import get_workflow
+from openswarm.workflow.collaborative import CollaborativeWorkflow
 from openswarm.workflow.hierarchical import HierarchicalWorkflow, _parse_agent_response
 
 from conftest import mock_acompletion, make_llm_response
@@ -49,6 +50,11 @@ def test_parse_invalid_json():
 def test_get_workflow_hierarchical():
     w = get_workflow("hierarchical")
     assert isinstance(w, HierarchicalWorkflow)
+
+
+def test_get_workflow_collaborative():
+    w = get_workflow("collaborative")
+    assert isinstance(w, CollaborativeWorkflow)
 
 
 def test_get_workflow_unknown():

@@ -23,8 +23,3 @@ def test_complete():
     t.complete("done result")
     assert t.status == TaskStatus.DONE
     assert t.result == "done result"
-
-
-def test_subtasks_default_empty():
-    t = Task(description="parent")
-    assert t.subtasks == []

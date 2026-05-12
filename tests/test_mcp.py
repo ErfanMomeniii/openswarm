@@ -52,7 +52,7 @@ def config_dir(tmp_path: Path) -> Path:
 
 @pytest.mark.asyncio
 async def test_list_teams(config_dir: Path):
-    with patch("openswarm.mcp.server._get_config_dir", return_value=config_dir):
+    with patch("openswarm.config.discovery.get_config_dir", return_value=config_dir):
         result = await list_teams()
 
     assert "myteam" in result
@@ -61,7 +61,7 @@ async def test_list_teams(config_dir: Path):
 
 @pytest.mark.asyncio
 async def test_list_teams_empty(tmp_path: Path):
-    with patch("openswarm.mcp.server._get_config_dir", return_value=tmp_path):
+    with patch("openswarm.config.discovery.get_config_dir", return_value=tmp_path):
         result = await list_teams()
 
     assert "No teams found" in result
@@ -69,7 +69,7 @@ async def test_list_teams_empty(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_team_info(config_dir: Path):
-    with patch("openswarm.mcp.server._get_config_dir", return_value=config_dir):
+    with patch("openswarm.config.discovery.get_config_dir", return_value=config_dir):
         result = await team_info("myteam")
 
     assert "test-team" in result
@@ -80,7 +80,7 @@ async def test_team_info(config_dir: Path):
 
 @pytest.mark.asyncio
 async def test_team_info_not_found(config_dir: Path):
-    with patch("openswarm.mcp.server._get_config_dir", return_value=config_dir):
+    with patch("openswarm.config.discovery.get_config_dir", return_value=config_dir):
         result = await team_info("ghost")
 
     assert "Error" in result
@@ -92,7 +92,7 @@ async def test_run_task(config_dir: Path):
     llm_mock = mock_acompletion(make_llm_response({"action": "respond", "content": "Task done!"}))
 
     with (
-        patch("openswarm.mcp.server._get_config_dir", return_value=config_dir),
+        patch("openswarm.config.discovery.get_config_dir", return_value=config_dir),
         patch("openswarm.llm.client.litellm.acompletion", llm_mock),
     ):
         result = await run_task("Do something", "myteam")
@@ -102,7 +102,7 @@ async def test_run_task(config_dir: Path):
 
 @pytest.mark.asyncio
 async def test_run_task_unknown_team(config_dir: Path):
-    with patch("openswarm.mcp.server._get_config_dir", return_value=config_dir):
+    with patch("openswarm.config.discovery.get_config_dir", return_value=config_dir):
         result = await run_task("Do something", "nope")
 
     assert "Error" in result

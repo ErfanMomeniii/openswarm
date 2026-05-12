@@ -29,6 +29,6 @@ def test_message_with_attachments():
 
 
 def test_all_message_types():
-    expected = {"task", "result", "question", "answer", "review", "revision"}
+    expected = {"task", "result", "question", "answer", "review", "revision", "discuss", "agree"}
     actual = {t.value for t in MessageType}
     assert actual == expected

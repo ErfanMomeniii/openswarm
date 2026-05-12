@@ -57,6 +57,28 @@ As a worker agent receiving a review, respond with:
 
 Always respond with valid JSON only. No text outside the JSON object."""
 
+COLLABORATIVE_PROTOCOL = """You communicate using JSON. Always respond with a single JSON object.
+
+When discussing a topic, share your perspective:
+{
+  "action": "discuss",
+  "content": "<your thoughts and analysis>"
+}
+
+When you agree with the current consensus and have nothing to add:
+{
+  "action": "agree",
+  "content": "<brief summary of what you agree with>"
+}
+
+When synthesizing the final answer (moderator only):
+{
+  "action": "respond",
+  "content": "<synthesized final answer incorporating all perspectives>"
+}
+
+Always respond with valid JSON only. No text outside the JSON object."""
+
 
 class Agent:
     """An agent with a role, rules, and LLM connection."""
@@ -69,7 +91,9 @@ class Agent:
         self.history: list[dict[str, str]] = []
         self.max_history = max_history
 
-    def _build_system_prompt(self, is_lead: bool = False) -> str:
+    def _build_system_prompt(
+        self, is_lead: bool = False, protocol_override: str | None = None
+    ) -> str:
         parts = [
             f"You are '{self.name}', a {self.role} agent.",
             "",
@@ -78,7 +102,7 @@ class Agent:
         for rule in self.rules:
             parts.append(f"- {rule}")
         parts.append("")
-        parts.append(COMMUNICATION_PROTOCOL)
+        parts.append(protocol_override if protocol_override else COMMUNICATION_PROTOCOL)
         if is_lead:
             parts.append(
                 "\nYou are the lead agent. You receive tasks from the user and can delegate to other agents."
@@ -96,9 +120,13 @@ class Agent:
         """Clear all conversation history."""
         self.history.clear()
 
-    async def respond(self, message: Message, is_lead: bool = False) -> str:
+    async def respond(
+        self, message: Message, is_lead: bool = False, protocol_override: str | None = None
+    ) -> str:
         """Process incoming message and return raw LLM response."""
-        system_prompt = self._build_system_prompt(is_lead=is_lead)
+        system_prompt = self._build_system_prompt(
+            is_lead=is_lead, protocol_override=protocol_override
+        )
 
         user_content = f"[{message.type.value}] from {message.from_agent}: {message.content}"
         if message.attachments:

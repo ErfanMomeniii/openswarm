@@ -139,6 +139,7 @@ agents:
 | `api_key` | required | API key (supports `${ENV_VAR}` syntax) |
 | `max_tokens` | `4096` | Max tokens per response (≥ 1) |
 | `temperature` | `0.7` | Sampling temperature (0.0–2.0) |
+| `max_history` | `40` | Max messages kept in agent history (≥ 1) |
 | `rules` | `[]` | Agent behavior rules |
 
 ## How It Works
@@ -162,9 +163,7 @@ Final result → User
 |------|-------------|----------|
 | **hierarchical** | Lead delegates, reviews, requests revisions, assembles | Dev teams, review workflows |
 | **pipeline** | Sequential: A → B → C — each agent transforms output | Content pipelines, data processing |
-| collaborative | All agents discuss → consensus | Brainstorming, code review |
-
-*Currently implemented: hierarchical, pipeline. Collaborative coming soon.*
+| **collaborative** | All agents discuss → consensus | Brainstorming, code review, decision-making |
 
 ### Pipeline Workflow
 
@@ -189,6 +188,31 @@ agents:
 ```
 
 Agents execute in config list order. No lead required.
+
+### Collaborative Workflow
+
+All agents see the task simultaneously and discuss in rounds. First agent in the list acts as moderator. Early exit if all agents agree. Moderator synthesizes the final answer.
+
+```yaml
+team:
+  name: "review-panel"
+  goal: "Review and decide on architecture"
+  workflow: collaborative
+  max_rounds: 5
+
+agents:
+  - name: "moderator"
+    role: architect
+    # ... (first agent = moderator)
+  - name: "backend"
+    role: backend-specialist
+    # ...
+  - name: "frontend"
+    role: frontend-specialist
+    # ...
+```
+
+Requires at least 2 agents. No `lead` field needed.
 
 ## Error Handling
 

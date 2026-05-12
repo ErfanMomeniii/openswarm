@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from openswarm.config.models import AgentConfig
-from openswarm.core.agent import Agent
+from openswarm.core.agent import COLLABORATIVE_PROTOCOL, Agent
 from openswarm.core.message import Message, MessageType
 
 from conftest import mock_acompletion
@@ -118,3 +118,28 @@ def test_clear_history(agent: Agent):
     agent.history.append({"role": "assistant", "content": "old reply"})
     agent.clear_history()
     assert len(agent.history) == 0
+
+
+# --- Protocol override ---
+
+
+def test_protocol_override_in_system_prompt(agent: Agent):
+    prompt = agent._build_system_prompt(protocol_override=COLLABORATIVE_PROTOCOL)
+    assert "discuss" in prompt
+    assert "agree" in prompt
+    assert "delegate" not in prompt
+
+
+def test_default_protocol_without_override(agent: Agent):
+    prompt = agent._build_system_prompt()
+    assert "delegate" in prompt
+    assert "discuss" not in prompt
+
+
+# --- Config max_history passthrough ---
+
+
+def test_config_max_history(agent_config: AgentConfig):
+    agent_config_custom = agent_config.model_copy(update={"max_history": 20})
+    agent = Agent(agent_config_custom, max_history=agent_config_custom.max_history)
+    assert agent.max_history == 20

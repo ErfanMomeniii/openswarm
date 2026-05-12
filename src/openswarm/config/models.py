@@ -15,7 +15,15 @@ class AgentConfig(BaseModel):
     api_key: str
     max_tokens: int = 4096
     temperature: float = 0.7
+    max_history: int = 40
     rules: list[str] = Field(default_factory=list)
+
+    @field_validator("max_history")
+    @classmethod
+    def max_history_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("max_history must be >= 1")
+        return v
 
     @field_validator("max_tokens")
     @classmethod
@@ -58,6 +66,12 @@ class TeamConfig(BaseModel):
                 raise ValueError(
                     f"Lead agent '{self.workflow.lead}' not found in agents: {agent_names}"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def validate_collaborative_min_agents(self) -> TeamConfig:
+        if self.workflow.type == "collaborative" and len(self.agents) < 2:
+            raise ValueError("Collaborative workflow requires at least 2 agents")
         return self
 
     def get_agent(self, name: str) -> AgentConfig:

@@ -9,11 +9,10 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 from rich.panel import Panel
 
-from openswarm.core.message import Message
+from openswarm.cli.utils import make_message_printer
 from openswarm.core.orchestrator import Orchestrator
 from openswarm.core.team import Team
 from openswarm.workflow import get_workflow
-from openswarm.workflow.base import MessageCallback
 
 console = Console()
 
@@ -23,29 +22,6 @@ SLASH_COMMANDS = {
     "/history": "Show message history",
     "/clear": "Clear message history",
 }
-
-
-def _make_message_printer(verbose: bool) -> MessageCallback | None:
-    """Return a callback that prints messages in real-time, or None."""
-    if not verbose:
-        return None
-
-    def _print_message(msg: Message) -> None:
-        color = {
-            "task": "blue",
-            "result": "green",
-            "question": "yellow",
-            "answer": "cyan",
-            "review": "magenta",
-            "revision": "white",
-        }.get(msg.type.value, "white")
-        truncated = msg.content[:200] + ("..." if len(msg.content) > 200 else "")
-        console.print(
-            f"  [{color}]{msg.from_agent} → {msg.to_agent}[/{color}] "
-            f"({msg.type.value}): {truncated}"
-        )
-
-    return _print_message
 
 
 def _handle_slash_command(
@@ -98,7 +74,7 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
     """Run the interactive REPL loop."""
     workflow = get_workflow(team.config.workflow.type)
     orchestrator = Orchestrator(team, workflow)
-    on_message = _make_message_printer(verbose)
+    on_message = make_message_printer() if verbose else None
 
     console.print(
         Panel(

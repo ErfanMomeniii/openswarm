@@ -1,8 +1,15 @@
 from openswarm.workflow.base import Workflow
+from openswarm.workflow.collaborative import CollaborativeWorkflow
 from openswarm.workflow.hierarchical import HierarchicalWorkflow
 from openswarm.workflow.pipeline import PipelineWorkflow
 
-__all__ = ["Workflow", "HierarchicalWorkflow", "PipelineWorkflow", "get_workflow"]
+__all__ = [
+    "Workflow",
+    "CollaborativeWorkflow",
+    "HierarchicalWorkflow",
+    "PipelineWorkflow",
+    "get_workflow",
+]
 
 
 def get_workflow(workflow_type: str) -> Workflow:
@@ -10,6 +17,7 @@ def get_workflow(workflow_type: str) -> Workflow:
     workflows = {
         "hierarchical": HierarchicalWorkflow,
         "pipeline": PipelineWorkflow,
+        "collaborative": CollaborativeWorkflow,
     }
     if workflow_type not in workflows:
         raise ValueError(

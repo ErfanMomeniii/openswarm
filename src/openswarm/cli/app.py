@@ -5,15 +5,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from pathlib import Path
 from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 
+from openswarm.cli.utils import make_message_printer
+from openswarm.config.discovery import find_team_configs, get_config_dir
 from openswarm.config.loader import load_config
-from openswarm.core.message import Message
 from openswarm.core.orchestrator import Orchestrator
 from openswarm.core.team import Team
 from openswarm.llm.client import LLMError
@@ -21,10 +21,6 @@ from openswarm.workflow import get_workflow
 
 app = typer.Typer(name="swarm", help="OpenSwarm — Multi-agent orchestration")
 console = Console()
-
-
-def _get_config_dir() -> Path:
-    return Path(os.environ.get("OPENSWARM_CONFIG_DIR", "~/.openswarm")).expanduser()
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -40,39 +36,6 @@ def _setup_logging(verbose: bool) -> None:
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-
-
-def _make_message_printer() -> callable:
-    """Return a callback that prints messages in real-time."""
-
-    def _print_message(msg: Message) -> None:
-        color = {
-            "task": "blue",
-            "result": "green",
-            "question": "yellow",
-            "answer": "cyan",
-            "review": "magenta",
-            "revision": "white",
-        }.get(msg.type.value, "white")
-        truncated = msg.content[:200] + ("..." if len(msg.content) > 200 else "")
-        console.print(
-            f"  [{color}]{msg.from_agent} → {msg.to_agent}[/{color}] "
-            f"({msg.type.value}): {truncated}"
-        )
-
-    return _print_message
-
-
-def _find_team_configs() -> dict[str, Path]:
-    """Discover all team YAML files in the config directory."""
-    teams_dir = _get_config_dir() / "teams"
-    if not teams_dir.exists():
-        return {}
-    configs: dict[str, Path] = {}
-    for p in sorted(teams_dir.iterdir()):
-        if p.suffix in (".yaml", ".yml"):
-            configs[p.stem] = p
-    return configs
 
 
 def _resolve_config(
@@ -91,7 +54,7 @@ def _resolve_config(
         return config
 
     # --team: look up in config dir
-    config_dir = _get_config_dir()
+    config_dir = get_config_dir()
     team_path = config_dir / "teams" / f"{team}.yaml"
     if not team_path.exists():
         # Also try .yml
@@ -133,7 +96,7 @@ def run(
     workflow = get_workflow(team_config.workflow.type)
     orchestrator = Orchestrator(team_obj, workflow)
 
-    on_message = _make_message_printer() if verbose else None
+    on_message = make_message_printer() if verbose else None
 
     console.print("\n[bold yellow]Running...[/bold yellow]\n")
 
@@ -175,9 +138,9 @@ def interactive(
 @app.command(name="team-list")
 def team_list() -> None:
     """List all configured teams."""
-    configs = _find_team_configs()
+    configs = find_team_configs()
     if not configs:
-        config_dir = _get_config_dir()
+        config_dir = get_config_dir()
         console.print(f"[dim]No teams found in {config_dir / 'teams'}[/dim]")
         return
 
@@ -195,7 +158,7 @@ def team_info(
     name: str = typer.Argument(help="Team name to show details for"),
 ) -> None:
     """Show detailed information about a configured team."""
-    configs = _find_team_configs()
+    configs = find_team_configs()
     if name not in configs:
         available = ", ".join(configs) if configs else "none"
         console.print(f"[red]Team '{name}' not found. Available: {available}[/red]")

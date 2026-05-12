@@ -13,6 +13,8 @@ class MessageType(str, Enum):
     ANSWER = "answer"
     REVIEW = "review"
     REVISION = "revision"
+    DISCUSS = "discuss"
+    AGREE = "agree"
 
 
 @dataclass

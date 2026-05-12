@@ -145,19 +145,12 @@ def test_slash_unknown(team_config: TeamConfig):
     assert _handle_slash_command("/nope", team, orch) is False
 
 
-# --- _make_message_printer ---
+# --- make_message_printer (now in cli.utils) ---
 
 
-def test_make_message_printer_verbose():
-    from openswarm.cli.interactive import _make_message_printer
+def test_make_message_printer():
+    from openswarm.cli.utils import make_message_printer
 
-    cb = _make_message_printer(verbose=True)
+    cb = make_message_printer()
     assert cb is not None
     assert callable(cb)
-
-
-def test_make_message_printer_quiet():
-    from openswarm.cli.interactive import _make_message_printer
-
-    cb = _make_message_printer(verbose=False)
-    assert cb is None

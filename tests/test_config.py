@@ -114,3 +114,43 @@ def test_temperature_valid_range():
 def test_temperature_default():
     a = AgentConfig(name="x", role="x", model="m", host="h", api_key="k")
     assert a.temperature == 0.7
+
+
+def test_max_history_default():
+    a = AgentConfig(name="x", role="x", model="m", host="h", api_key="k")
+    assert a.max_history == 40
+
+
+def test_max_history_custom():
+    a = AgentConfig(name="x", role="x", model="m", host="h", api_key="k", max_history=10)
+    assert a.max_history == 10
+
+
+def test_max_history_must_be_positive():
+    with pytest.raises(ValidationError, match="max_history must be >= 1"):
+        AgentConfig(name="x", role="x", model="m", host="h", api_key="k", max_history=0)
+
+
+def test_collaborative_requires_min_agents():
+    with pytest.raises(ValidationError, match="at least 2 agents"):
+        TeamConfig(
+            name="solo",
+            goal="test",
+            workflow=WorkflowConfig(type="collaborative"),
+            agents=[
+                AgentConfig(name="alice", role="dev", model="m", host="h", api_key="k"),
+            ],
+        )
+
+
+def test_collaborative_no_lead_required():
+    config = TeamConfig(
+        name="ok",
+        goal="test",
+        workflow=WorkflowConfig(type="collaborative"),
+        agents=[
+            AgentConfig(name="alice", role="dev", model="m", host="h", api_key="k"),
+            AgentConfig(name="bob", role="dev", model="m", host="h", api_key="k"),
+        ],
+    )
+    assert config.workflow.lead is None
