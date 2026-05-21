@@ -1,6 +1,13 @@
-"""MCP server exposing OpenSwarm teams as tools."""
+"""MCP server exposing OpenSwarm teams as tools.
+
+Auto-discovers team configs from:
+  1. Project directory (cwd): team.yaml, openswarm.yaml, .openswarm.yaml, openswarm/*.yaml
+  2. Global config: ~/.openswarm/teams/*.yaml
+"""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from openswarm.config.discovery import find_team_configs, get_config_dir
 from openswarm.config.loader import load_config
@@ -8,10 +15,67 @@ from openswarm.core.orchestrator import Orchestrator
 from openswarm.core.team import Team
 from openswarm.workflow import get_workflow
 
+# File names to look for in project directory (in priority order)
+LOCAL_CONFIG_NAMES = [
+    "team.yaml",
+    "team.yml",
+    "openswarm.yaml",
+    "openswarm.yml",
+    ".openswarm.yaml",
+    ".openswarm.yml",
+]
 
-async def run_task(task: str, team_name: str) -> str:
-    """Run a task with a named team and return the result."""
+
+def find_local_configs(project_dir: Path | None = None) -> dict[str, Path]:
+    """Find team configs in the project directory.
+
+    Looks for well-known filenames and openswarm/ subdirectory.
+    """
+    root = project_dir or Path.cwd()
+    configs: dict[str, Path] = {}
+
+    # Check well-known filenames
+    for name in LOCAL_CONFIG_NAMES:
+        path = root / name
+        if path.exists():
+            configs[path.stem] = path
+
+    # Check openswarm/ subdirectory
+    swarm_dir = root / "openswarm"
+    if swarm_dir.is_dir():
+        for p in sorted(swarm_dir.iterdir()):
+            if p.suffix in (".yaml", ".yml"):
+                configs[p.stem] = p
+
+    return configs
+
+
+def find_all_configs(project_dir: Path | None = None) -> dict[str, Path]:
+    """Find all team configs — local project configs first, then global."""
+    # Global configs
     configs = find_team_configs()
+    # Local configs override global ones with same name
+    configs.update(find_local_configs(project_dir))
+    return configs
+
+
+async def run_task(task: str, team_name: str | None = None) -> str:
+    """Run a task with a team. Auto-discovers config if no team specified."""
+    configs = find_all_configs()
+
+    if not team_name:
+        # Auto-select: if there's exactly one config, use it
+        if len(configs) == 1:
+            team_name = next(iter(configs))
+        elif len(configs) == 0:
+            return (
+                "Error: No team config found. "
+                "Add a team.yaml to your project or ~/.openswarm/teams/."
+            )
+        else:
+            available = ", ".join(configs)
+            return f"Error: Multiple teams found ({available}). Specify which team to use."
+
     if team_name not in configs:
         available = ", ".join(configs) if configs else "none"
         return f"Error: Team '{team_name}' not found. Available: {available}"
@@ -23,17 +87,38 @@ async def run_task(task: str, team_name: str) -> str:
     return await orchestrator.run(task)
 
 
+async def run_task_with_config(task: str, config_path: str) -> str:
+    """Run a task using a config file path and return the result."""
+    path = Path(config_path)
+    if not path.exists():
+        return f"Error: Config file not found: {config_path}"
+
+    try:
+        team_config = load_config(path)
+    except Exception as e:
+        return f"Error loading config: {e}"
+
+    team = Team(team_config)
+    workflow = get_workflow(team_config.workflow.type)
+    orchestrator = Orchestrator(team, workflow)
+    return await orchestrator.run(task)
+
+
 async def list_teams() -> str:
-    """List all configured teams."""
-    configs = find_team_configs()
+    """List all available teams (local + global)."""
+    configs = find_all_configs()
     if not configs:
-        return f"No teams found in {get_config_dir() / 'teams'}"
+        return (
+            "No teams found. Add a team.yaml to your project "
+            f"or place configs in {get_config_dir() / 'teams'}."
+        )
 
     lines = []
     for name, path in configs.items():
         try:
             tc = load_config(path)
-            lines.append(f"• {name}: {tc.goal} ({len(tc.agents)} agents)")
+            source = "local" if path.parent != get_config_dir() / "teams" else "global"
+            lines.append(f"• {name} [{source}]: {tc.goal} ({len(tc.agents)} agents)")
         except Exception as e:
             lines.append(f"• {name}: [error loading: {e}]")
     return "\n".join(lines)
@@ -41,7 +126,7 @@ async def list_teams() -> str:
 
 async def team_info(team_name: str) -> str:
     """Show detailed info about a team."""
-    configs = find_team_configs()
+    configs = find_all_configs()
     if team_name not in configs:
         available = ", ".join(configs) if configs else "none"
         return f"Error: Team '{team_name}' not found. Available: {available}"
@@ -64,26 +149,71 @@ def create_mcp_server():
     """Create and return the FastMCP server instance."""
     from mcp.server.fastmcp import FastMCP
 
-    mcp = FastMCP("openswarm", instructions="Multi-agent orchestration framework")
+    mcp = FastMCP(
+        "openswarm",
+        instructions=(
+            "OpenSwarm multi-agent orchestration. "
+            "Delegate complex tasks to AI agent teams defined in team.yaml. "
+            "The team's agents collaborate using their configured workflow "
+            "to produce a result."
+        ),
+    )
 
     @mcp.tool()
-    async def mcp_run_task(task: str, team_name: str) -> str:
-        """Run a task with a configured agent team."""
-        return await run_task(task, team_name)
+    async def openswarm_run(task: str, team: str = "") -> str:
+        """Delegate a task to an OpenSwarm agent team.
+
+        Sends the task to a multi-agent team that collaborates to produce a
+        result. The team is defined in the project's team.yaml (auto-discovered)
+        or ~/.openswarm/teams/. If only one team exists, it's used automatically.
+
+        Use this when a task benefits from multiple AI agents working together —
+        e.g. a senior architect breaking down work and delegating to junior devs,
+        a pipeline of writer → editor → reviewer, or a panel discussing a decision.
+
+        Args:
+            task: What the team should do. Be specific and detailed.
+            team: Team name (optional — auto-selects if only one team exists).
+
+        Returns:
+            The final result from the agent team.
+        """
+        return await run_task(task, team if team else None)
 
     @mcp.tool()
-    async def mcp_list_teams() -> str:
-        """List all configured teams."""
+    async def openswarm_teams() -> str:
+        """List available OpenSwarm teams and their capabilities.
+
+        Shows all teams from the project directory (team.yaml, openswarm/*.yaml)
+        and global config (~/.openswarm/teams/). Each entry shows the team's goal
+        and number of agents.
+
+        Returns:
+            Formatted list of available teams.
+        """
         return await list_teams()
 
     @mcp.tool()
-    async def mcp_team_info(team_name: str) -> str:
-        """Show detailed information about a team."""
-        return await team_info(team_name)
+    async def openswarm_team_info(team: str) -> str:
+        """Show detailed info about an OpenSwarm team — agents, roles, models, workflow.
+
+        Args:
+            team: Team name to inspect.
+
+        Returns:
+            Team details including workflow type and all agents with their
+            roles, models, and rules.
+        """
+        return await team_info(team)
 
     return mcp
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the openswarm-mcp command."""
     server = create_mcp_server()
     server.run()
+
+
+if __name__ == "__main__":
+    main()

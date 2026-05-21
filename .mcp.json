@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "openswarm": {
+      "command": "python",
+      "args": ["-m", "openswarm.mcp.server"],
+      "env": {
+        "PYTHONPATH": "src"
+      }
+    }
+  }
+}
