@@ -1,0 +1,32 @@
+team:
+  name: "dev-team"
+  goal: "Build backend services with code review"
+  workflow: hierarchical
+  lead: "architect"
+  max_rounds: 8
+
+agents:
+  - name: "architect"
+    role: senior architect
+    model: openai/kimi/kimi-k2.5
+    host: ${HOST_URL}
+    api_key: ${API_KEY}
+    max_tokens: 1024
+    temperature: 0.3
+    rules:
+      - "Break down tasks into clear subtasks for the developer"
+      - "Review developer's code for correctness, edge cases, and best practices"
+      - "Handle architecture decisions directly"
+      - "Request revisions if code has issues"
+
+  - name: "developer"
+    role: junior developer
+    model: openai/minimax/MiniMax-M2.5
+    host: ${HOST_URL}
+    api_key: ${API_KEY}
+    max_tokens: 1024
+    temperature: 0.2
+    rules:
+      - "Write clean, production-ready Python code"
+      - "Include type hints and docstrings"
+      - "Handle edge cases"

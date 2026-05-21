@@ -50,14 +50,15 @@ class LLMClient:
     async def chat(self, messages: list[dict[str, str]]) -> str:
         """Send messages to LLM, return assistant response text.
 
-        Retries once on transient errors (rate limit, timeout, connection).
+        Retries up to 2 times on transient errors (rate limit, timeout, connection).
         Raises LLMError on permanent failures.
         """
+        max_attempts = 3
         last_error: Exception | None = None
 
-        for attempt in range(2):  # max 1 retry
+        for attempt in range(max_attempts):
             if attempt > 0:
-                wait = 2.0
+                wait = 2.0 * attempt
                 logger.info(f"Retrying LLM call to {self.model} after {wait}s...")
                 await asyncio.sleep(wait)
 
@@ -81,11 +82,12 @@ class LLMClient:
 
             except _TRANSIENT_EXCEPTIONS as e:
                 last_error = e
-                logger.warning(f"Transient LLM error (attempt {attempt + 1}): {e}")
-                if attempt == 0:
+                logger.warning(f"Transient LLM error (attempt {attempt + 1}/{max_attempts}): {e}")
+                if attempt < max_attempts - 1:
                     continue
                 raise LLMError(
-                    f"LLM call to {self.model} failed after retry: {e}", original=e
+                    f"LLM call to {self.model} failed after {max_attempts} attempts: {e}",
+                    original=e,
                 ) from e
 
             except Exception as e:

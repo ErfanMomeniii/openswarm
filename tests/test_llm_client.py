@@ -81,9 +81,9 @@ async def test_raise_llm_error_on_permanent_failure(client: LLMClient):
 @pytest.mark.asyncio
 async def test_raise_llm_error_after_retry_exhausted(client: LLMClient):
     error = litellm.RateLimitError("rate limited", "model", "provider", None)
-    mock = AsyncMock(side_effect=[error, error])
+    mock = AsyncMock(side_effect=[error, error, error])
     with patch("openswarm.llm.client.litellm.acompletion", mock):
         with patch("openswarm.llm.client.asyncio.sleep", new_callable=AsyncMock):
-            with pytest.raises(LLMError, match="after retry"):
+            with pytest.raises(LLMError, match="after 3 attempts"):
                 await client.chat([{"role": "user", "content": "hi"}])
-    assert mock.call_count == 2
+    assert mock.call_count == 3

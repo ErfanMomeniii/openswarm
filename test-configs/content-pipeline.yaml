@@ -1,0 +1,29 @@
+team:
+  name: "content-pipeline"
+  goal: "Draft, review, and polish technical documentation"
+  workflow: pipeline
+  max_rounds: 3
+
+agents:
+  - name: "drafter"
+    role: technical writer
+    model: openai/minimax/MiniMax-M2.5
+    host: ${HOST_URL}
+    api_key: ${API_KEY}
+    max_tokens: 1024
+    temperature: 0.5
+    rules:
+      - "Write clear, structured technical content"
+      - "Include code examples where relevant"
+
+  - name: "reviewer"
+    role: senior editor
+    model: openai/kimi/kimi-k2.5
+    host: ${HOST_URL}
+    api_key: ${API_KEY}
+    max_tokens: 1024
+    temperature: 0.3
+    rules:
+      - "Fix technical inaccuracies"
+      - "Improve clarity and remove jargon"
+      - "Output the final polished version only"

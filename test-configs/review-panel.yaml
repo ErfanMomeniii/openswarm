@@ -1,0 +1,39 @@
+team:
+  name: "review-panel"
+  goal: "Review architecture decisions from multiple perspectives"
+  workflow: collaborative
+  max_rounds: 4
+
+agents:
+  - name: "moderator"
+    role: tech lead and moderator
+    model: openai/kimi/kimi-k2.5
+    host: https://llm.snapp.tech/v1
+    api_key: ${SNAPP_API_KEY}
+    max_tokens: 1024
+    temperature: 0.3
+    rules:
+      - "Synthesize different perspectives into actionable decisions"
+      - "Consider trade-offs between approaches"
+
+  - name: "backend-expert"
+    role: backend specialist
+    model: openai/minimax/MiniMax-M2.5
+    host: ${HOST_URL}
+    api_key: ${API_KEY}
+    max_tokens: 512
+    temperature: 0.4
+    rules:
+      - "Focus on performance, scalability, and data integrity"
+      - "Suggest concrete implementation patterns"
+
+  - name: "security-reviewer"
+    role: security engineer
+    model: openai/kimi/kimi-k2.5
+    host: ${HOST_URL}
+    api_key: ${API_KEY}
+    max_tokens: 512
+    temperature: 0.3
+    rules:
+      - "Identify security vulnerabilities and attack vectors"
+      - "Recommend OWASP best practices"
