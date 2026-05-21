@@ -6,9 +6,15 @@ import asyncio
 import logging
 import time
 
+import httpx
 import litellm
 
 from openswarm.config.models import AgentConfig
+
+litellm.use_aiohttp_transport = False
+litellm.disable_aiohttp_transport = True
+
+litellm.aclient_session = httpx.AsyncClient(trust_env=False, follow_redirects=True)
 
 logger = logging.getLogger(__name__)
 
