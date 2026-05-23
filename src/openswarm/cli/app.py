@@ -19,7 +19,7 @@ from openswarm.core.team import Team
 from openswarm.llm.client import LLMError
 from openswarm.workflow import get_workflow
 
-app = typer.Typer(name="swarm", help="OpenSwarm — Multi-agent orchestration")
+app = typer.Typer(name="openswarm", help="OpenSwarm — Multi-agent orchestration")
 console = Console()
 
 

@@ -16,7 +16,7 @@ agents:
 ```
 
 ```bash
-swarm run "Build user auth API" --config team.yaml
+openswarm run "Build user auth API" --config team.yaml
 ```
 
 Senior breaks it down, delegates to Junior, reviews results, assembles final output. One command.
@@ -24,10 +24,10 @@ Senior breaks it down, delegates to Junior, reviews results, assembles final out
 ## Install
 
 ```bash
-pip install openswarm
+pip install openswarm-ai
 
 # With MCP server support
-pip install openswarm[mcp]
+pip install openswarm-ai[mcp]
 ```
 
 ## Integration
@@ -49,7 +49,7 @@ Any tool that supports MCP works with OpenSwarm — the setup is the same patter
 ### Setup (one-time)
 
 ```bash
-pip install openswarm[mcp]
+pip install openswarm-ai[mcp]
 ```
 
 Then register the MCP server with your tool:
@@ -170,19 +170,19 @@ The server also discovers teams from `openswarm/*.yaml` in the project and `~/.o
 
 ```bash
 # Run with config file
-swarm run "Build a REST API" --config team.yaml
+openswarm run "Build a REST API" --config team.yaml
 
 # Run with named team (looks up ~/.openswarm/teams/<name>.yaml)
-swarm run "Fix the login bug" --team backend
+openswarm run "Fix the login bug" --team backend
 
 # Verbose — see inter-agent messages in real-time
-swarm run "Refactor auth module" --config team.yaml -v
+openswarm run "Refactor auth module" --config team.yaml -v
 
 # List all configured teams
-swarm team-list
+openswarm team-list
 
 # Show team details
-swarm team-info backend
+openswarm team-info backend
 
 # Run as module
 python -m openswarm run "Do the thing" --config team.yaml
@@ -193,8 +193,8 @@ python -m openswarm run "Do the thing" --config team.yaml
 Interactive REPL for chatting with your team. We're actively improving this as a separate effort.
 
 ```bash
-swarm interactive --team backend
-swarm interactive --team backend -v  # with real-time message display
+openswarm interactive --team backend
+openswarm interactive --team backend -v  # with real-time message display
 ```
 
 Slash commands: `/quit`, `/team`, `/history`, `/clear`. Ctrl+C cancels current task without exiting.
@@ -323,7 +323,7 @@ Requires at least 2 agents. No `lead` field needed.
 
 - LLM calls retry once on transient errors (rate limits, timeouts, connection issues)
 - Permanent errors (bad API key, invalid model) fail immediately with a clear message
-- `swarm run` shows clean error output instead of tracebacks
+- `openswarm run` shows clean error output instead of tracebacks
 - Config validation catches problems at load time (missing lead agent, invalid temperature/token values)
 
 ## Environment Variables

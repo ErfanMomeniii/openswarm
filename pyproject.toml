@@ -3,8 +3,8 @@ requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openswarm"
-version = "0.1.0"
+name = "openswarm-ai"
+version = "1.0.1"
 description = "Multi-agent orchestration framework"
 authors = [{ name = "Erfan Momeni", email = "erfamm5@gmail.com" }]
 license = { text = "MIT" }
@@ -30,7 +30,7 @@ dev = [
 ]
 
 [project.scripts]
-swarm = "openswarm.cli.app:app"
+openswarm = "openswarm.cli.app:app"
 openswarm-mcp = "openswarm.mcp.server:main"
 
 [tool.setuptools.packages.find]
