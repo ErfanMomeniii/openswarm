@@ -30,20 +30,42 @@ pip install openswarm
 pip install openswarm[mcp]
 ```
 
-## Integration with Claude Code & OpenCode
+## Integration
 
-The easiest way to use OpenSwarm — add a `team.yaml` to your project and let Claude Code or OpenCode delegate to your agent team automatically.
+The easiest way to use OpenSwarm — add a `team.yaml` to your project and let your AI IDE delegate to your agent team automatically.
+
+### Supported
+
+| Tool | Integration | Status |
+|------|------------|--------|
+| **Claude Code** | MCP server (auto-discovery via `.mcp.json`) | Ready |
+| **OpenCode** | MCP server (auto-discovery via `opencode.json`) | Ready |
+| **Cursor** | MCP server (via Cursor settings) | Ready |
+| **Windsurf** | MCP server (via `~/.codeium/windsurf/mcp_config.json`) | Ready |
+| **GitHub Copilot** | MCP server (via VS Code `settings.json`) | Ready |
+
+Any tool that supports MCP works with OpenSwarm — the setup is the same pattern everywhere.
 
 ### Setup (one-time)
 
-**Claude Code:**
-
 ```bash
 pip install openswarm[mcp]
-claude mcp add openswarm -- openswarm-mcp
 ```
 
-**OpenCode** — add to your global `opencode.json`:
+Then register the MCP server with your tool:
+
+<details>
+<summary><strong>Claude Code</strong></summary>
+
+```bash
+claude mcp add openswarm -- openswarm-mcp
+```
+</details>
+
+<details>
+<summary><strong>OpenCode</strong></summary>
+
+Add to your `opencode.json`:
 
 ```json
 {
@@ -56,6 +78,51 @@ claude mcp add openswarm -- openswarm-mcp
   }
 }
 ```
+</details>
+
+<details>
+<summary><strong>Cursor</strong></summary>
+
+Go to **Cursor Settings → MCP → Add new MCP server**:
+
+- Name: `openswarm`
+- Type: `command`
+- Command: `openswarm-mcp`
+</details>
+
+<details>
+<summary><strong>Windsurf</strong></summary>
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "openswarm": {
+      "command": "openswarm-mcp",
+      "args": []
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><strong>GitHub Copilot (VS Code)</strong></summary>
+
+Add to VS Code `settings.json`:
+
+```json
+{
+  "github.copilot.chat.mcp.servers": {
+    "openswarm": {
+      "command": "openswarm-mcp",
+      "args": []
+    }
+  }
+}
+```
+</details>
 
 ### Usage (per project)
 
