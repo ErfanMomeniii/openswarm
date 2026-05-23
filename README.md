@@ -28,17 +28,92 @@ Senior breaks it down, delegates to Junior, reviews results, assembles final out
 ## Install
 
 ```bash
-pip install openswarm-ai
-
-# With MCP server support (for Claude Code, Cursor, etc.)
-pip install "openswarm-ai[mcp]"
+pipx install "openswarm-ai[mcp]"
 ```
+
+This installs everything: the `openswarm` CLI, the `openswarm-mcp` server, and all dependencies. The `[mcp]` extra adds MCP server support for IDE integration (Claude Code, Cursor, etc.).
+
+> **Why pipx?** It installs OpenSwarm globally in an isolated environment — available from any project, no venv conflicts. [Install pipx](https://pipx.pypa.io/stable/how-to/install-pipx/) if you don't have it.
+
+## Quick Start
+
+### 1. Create a team config
+
+Add a `team.yaml` to your project root:
+
+```yaml
+team:
+  name: "backend-team"
+  goal: "Build and maintain backend services"
+  workflow: hierarchical
+  lead: "senior"
+
+agents:
+  - name: "senior"
+    role: senior
+    model: claude-sonnet-4-20250514
+    host: https://api.anthropic.com
+    api_key: ${ANTHROPIC_API_KEY}
+    max_tokens: 4096
+    rules: ["Break down tasks", "Review output"]
+
+  - name: "junior"
+    role: junior
+    model: deepseek-chat
+    host: https://api.deepseek.com/v1
+    api_key: ${DEEPSEEK_API_KEY}
+    max_tokens: 2048
+    rules: ["Execute assigned tasks", "Write tests"]
+```
+
+### 2. Run a task
+
+```bash
+openswarm run "Build user auth API" --config team.yaml
+```
+
+### 3. Or use it from your AI IDE
+
+See [Integration](#integration) below — one-time setup, then your IDE delegates to the team automatically.
+
+## CLI Usage
+
+```bash
+# Run with config file
+openswarm run "Build a REST API" --config team.yaml
+
+# Run with named team (from ~/.openswarm/teams/<name>.yaml)
+openswarm run "Fix the login bug" --team backend
+
+# Verbose — see inter-agent messages in real-time
+openswarm run "Refactor auth module" --config team.yaml -v
+
+# List all configured teams
+openswarm team-list
+
+# Show team details
+openswarm team-info backend
+
+# Run as Python module
+python -m openswarm run "Do the thing" --config team.yaml
+```
+
+### Interactive Mode (experimental)
+
+Chat with your team in a persistent session. We're actively improving this.
+
+```bash
+openswarm interactive --team backend
+openswarm interactive --team backend -v  # with real-time message display
+```
+
+Slash commands: `/quit`, `/team`, `/history`, `/clear`. Ctrl+C cancels current task without exiting.
 
 ## Integration
 
-The easiest way to use OpenSwarm — add a `team.yaml` to your project and let your AI IDE delegate to your agent team automatically.
+Use OpenSwarm from your AI IDE — add a `team.yaml` to your project and the IDE delegates to your agent team automatically. No special prompting needed.
 
-### Supported
+### Supported IDEs
 
 | Tool | Integration | Status |
 |------|------------|--------|
@@ -48,15 +123,11 @@ The easiest way to use OpenSwarm — add a `team.yaml` to your project and let y
 | **Windsurf** | MCP server (via `~/.codeium/windsurf/mcp_config.json`) | Ready |
 | **GitHub Copilot** | MCP server (via VS Code `settings.json`) | Ready |
 
-Any tool that supports MCP works with OpenSwarm — the setup is the same pattern everywhere.
+Any tool that supports MCP works with OpenSwarm.
 
 ### Setup (one-time)
 
-```bash
-pip install "openswarm-ai[mcp]"
-```
-
-Then register the MCP server with your tool:
+Register the MCP server with your IDE:
 
 <details>
 <summary><strong>Claude Code</strong></summary>
@@ -128,37 +199,9 @@ Add to VS Code `settings.json`:
 ```
 </details>
 
-### Usage (per project)
+### How it works
 
-Add a `team.yaml` to your project root — like `CLAUDE.md`, but for your agent team:
-
-```yaml
-# team.yaml
-team:
-  name: "backend-team"
-  goal: "Build and maintain backend services"
-  workflow: hierarchical
-  lead: "senior"
-
-agents:
-  - name: "senior"
-    role: senior
-    model: claude-sonnet-4-20250514
-    host: https://api.anthropic.com
-    api_key: ${ANTHROPIC_API_KEY}
-    max_tokens: 4096
-    rules: ["Break down tasks", "Review output"]
-
-  - name: "junior"
-    role: junior
-    model: deepseek-chat
-    host: https://api.deepseek.com/v1
-    api_key: ${DEEPSEEK_API_KEY}
-    max_tokens: 2048
-    rules: ["Execute assigned tasks", "Write tests"]
-```
-
-That's it. The MCP server auto-discovers `team.yaml` from the working directory. Your AI IDE sees the tools and delegates when the task matches — no special prompting needed.
+The MCP server auto-discovers `team.yaml` from the working directory. When your IDE sees a task that matches the team's capabilities, it delegates automatically.
 
 ### MCP Tools
 
@@ -168,40 +211,22 @@ That's it. The MCP server auto-discovers `team.yaml` from the working directory.
 | `openswarm_teams()` | List available teams (local + global) |
 | `openswarm_team_info(team)` | Show team details — agents, models, workflow |
 
-The server also discovers teams from `openswarm/*.yaml` in the project and `~/.openswarm/teams/` globally.
+Config discovery: `team.yaml` / `openswarm.yaml` in project root, `openswarm/*.yaml` subdirectory, and `~/.openswarm/teams/` globally.
 
-## CLI Usage
+## How It Works
 
-```bash
-# Run with config file
-openswarm run "Build a REST API" --config team.yaml
-
-# Run with named team (looks up ~/.openswarm/teams/<name>.yaml)
-openswarm run "Fix the login bug" --team backend
-
-# Verbose — see inter-agent messages in real-time
-openswarm run "Refactor auth module" --config team.yaml -v
-
-# List all configured teams
-openswarm team-list
-
-# Show team details
-openswarm team-info backend
-
-# Run as module
-python -m openswarm run "Do the thing" --config team.yaml
 ```
-
-### Interactive Mode (experimental)
-
-Interactive REPL for chatting with your team. We're actively improving this as a separate effort.
-
-```bash
-openswarm interactive --team backend
-openswarm interactive --team backend -v  # with real-time message display
+User: "Build user auth API"
+  ↓
+Senior (Claude): decomposes task
+  ├── "Write User model" → Junior (DeepSeek)
+  ├── "Write endpoints"  → Junior (DeepSeek)
+  └── "Design JWT strategy" → Senior handles directly
+  ↓
+Junior returns code → Senior reviews → requests fixes or approves
+  ↓
+Final result → User
 ```
-
-Slash commands: `/quit`, `/team`, `/history`, `/clear`. Ctrl+C cancels current task without exiting.
 
 ## Team Config
 
@@ -250,21 +275,6 @@ agents:
 | `temperature` | `0.7` | Sampling temperature (0.0–2.0) |
 | `max_history` | `40` | Max messages kept in agent history (≥ 1) |
 | `rules` | `[]` | Agent behavior rules |
-
-## How It Works
-
-```
-User: "Build user auth API"
-  ↓
-Senior (Claude): decomposes task
-  ├── "Write User model" → Junior (DeepSeek)
-  ├── "Write endpoints"  → Junior (DeepSeek)
-  └── "Design JWT strategy" → Senior handles directly
-  ↓
-Junior returns code → Senior reviews → requests fixes or approves
-  ↓
-Final result → User
-```
 
 ## Workflow Types
 
@@ -337,15 +347,6 @@ Requires at least 2 agents. No `lead` field needed.
 | `OPENSWARM_CONFIG_DIR` | `~/.openswarm` | Config directory |
 | `OPENSWARM_LOG_LEVEL` | `INFO` | Log level |
 
-## Development
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-pytest tests/ -v
-ruff check src/ tests/ && ruff format src/ tests/
-```
-
 ## Why OpenSwarm? Cost Comparison
 
 Running everything through one expensive model wastes money. Most coding tasks — writing boilerplate, implementing endpoints, writing tests — don't need the most capable model. OpenSwarm lets you route work to the right model.
@@ -389,6 +390,15 @@ Running everything through one expensive model wastes money. Most coding tasks �
 | With Opus as lead | ~$3.00 | ~$0.85 | 72% |
 
 The more work you can route to cheap models, the more you save. Senior handles ~20% of tokens but makes the decisions that matter.
+
+## Development
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev,mcp]"
+pytest tests/ -v
+ruff check src/ tests/ && ruff format src/ tests/
+```
 
 ## License
 
