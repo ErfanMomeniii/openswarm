@@ -145,38 +145,70 @@ async def team_info(team_name: str) -> str:
     return "\n".join(lines)
 
 
+def _build_instructions() -> str:
+    """Build MCP server instructions based on discovered team configs.
+
+    When a team.yaml exists, instructions tell the IDE to always delegate
+    coding tasks through the team — no user prompting needed.
+    """
+    configs = find_all_configs()
+
+    if not configs:
+        return (
+            "OpenSwarm multi-agent orchestration. "
+            "No team config found. Add a team.yaml to the project to enable "
+            "automatic task delegation to an AI agent team."
+        )
+
+    # Build team summary for the instructions
+    team_summaries = []
+    for name, path in configs.items():
+        try:
+            tc = load_config(path)
+            agents_desc = ", ".join(f"{a.name} ({a.role})" for a in tc.agents)
+            team_summaries.append(
+                f"- {tc.name}: {tc.goal} [{tc.workflow.type} workflow, agents: {agents_desc}]"
+            )
+        except Exception:
+            team_summaries.append(f"- {name}: [config error]")
+
+    teams_info = "\n".join(team_summaries)
+
+    return (
+        "IMPORTANT: This project has an OpenSwarm agent team configured. "
+        "You MUST use the openswarm_run tool for ALL coding tasks — "
+        "building features, fixing bugs, writing tests, refactoring, everything. "
+        "Do NOT write code directly. Always pass the task to openswarm_run.\n\n"
+        "The team will decide if it can handle the task. If the task is outside "
+        "the team's scope, the team will tell you — then you can handle it directly. "
+        "But always try the team first.\n\n"
+        "Only respond directly for non-coding tasks (questions, explanations, "
+        "file reading, git commands).\n\n"
+        f"Available teams:\n{teams_info}"
+    )
+
+
 def create_mcp_server():
     """Create and return the FastMCP server instance."""
     from mcp.server.fastmcp import FastMCP
 
-    mcp = FastMCP(
-        "openswarm",
-        instructions=(
-            "OpenSwarm multi-agent orchestration. "
-            "Delegate complex tasks to AI agent teams defined in team.yaml. "
-            "The team's agents collaborate using their configured workflow "
-            "to produce a result."
-        ),
-    )
+    mcp = FastMCP("openswarm", instructions=_build_instructions())
 
     @mcp.tool()
     async def openswarm_run(task: str, team: str = "") -> str:
-        """Delegate a task to an OpenSwarm agent team.
-
-        Sends the task to a multi-agent team that collaborates to produce a
-        result. The team is defined in the project's team.yaml (auto-discovered)
-        or ~/.openswarm/teams/. If only one team exists, it's used automatically.
-
-        Use this when a task benefits from multiple AI agents working together —
-        e.g. a senior architect breaking down work and delegating to junior devs,
-        a pipeline of writer → editor → reviewer, or a panel discussing a decision.
+        """Delegate a task to the OpenSwarm agent team. ALWAYS use this tool for
+        any coding task. Do NOT write code directly. The team will handle the task
+        if it's within their scope, or respond that it's outside their capabilities
+        so you can handle it yourself.
 
         Args:
-            task: What the team should do. Be specific and detailed.
+            task: What the team should do. Be specific and detailed — include
+                  requirements, constraints, file paths, and expected behavior.
             team: Team name (optional — auto-selects if only one team exists).
 
         Returns:
-            The final result from the agent team.
+            The final result from the agent team, or a message indicating the
+            task is outside the team's scope.
         """
         return await run_task(task, team if team else None)
 

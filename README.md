@@ -201,7 +201,12 @@ Add to VS Code `settings.json`:
 
 ### How it works
 
-The MCP server auto-discovers `team.yaml` from the working directory. When your IDE sees a task that matches the team's capabilities, it delegates automatically.
+1. The MCP server auto-discovers `team.yaml` from the working directory
+2. It tells your IDE: "always delegate coding tasks to the team"
+3. Your IDE sends every coding task to `openswarm_run` automatically
+4. The team handles it if it's within scope — if not, the team says so and the IDE handles it directly
+
+**What if the task doesn't match the team?** For example, you have a frontend team but ask a backend question. The team's lead agent will recognize it's outside their scope and respond accordingly. Your IDE then handles it directly. You never need to decide — just ask, and the system routes it to the right place.
 
 ### MCP Tools
 
