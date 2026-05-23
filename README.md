@@ -4,7 +4,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://pypi.org/project/openswarm-ai/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/erfamm/openswarm/blob/master/LICENSE)
 
-Design AI teams in YAML. Cheap models do bulk work, expensive models make decisions — you control who does what.
+**Cut your AI coding costs by ~70%.** Define agent teams in YAML — cheap models do bulk work, expensive models make decisions. Works inside Claude Code, Cursor, Copilot, and any MCP-compatible IDE.
 
 ```yaml
 agents:
@@ -33,13 +33,13 @@ pipx install "openswarm-ai[mcp]"
 
 This installs everything: the `openswarm` CLI, the `openswarm-mcp` server, and all dependencies. The `[mcp]` extra adds MCP server support for IDE integration (Claude Code, Cursor, etc.).
 
-> **Why pipx?** It installs OpenSwarm globally in an isolated environment — available from any project, no venv conflicts. [Install pipx](https://pipx.pypa.io/stable/how-to/install-pipx/) if you don't have it.
+> **Why pipx?** It installs OpenSwarm globally in an isolated environment — available from any project, no venv conflicts. [Install pipx](https://pipx.pypa.io/stable/how-to/install-pipx/) if you don't have it. Or use `brew install pipx` on macOS.
 
-## Quick Start
+## Get Started
 
-### 1. Create a team config
+### 1. Add `team.yaml` to your project
 
-Add a `team.yaml` to your project root:
+Drop this in your project root — like a `CLAUDE.md`, but for your agent team:
 
 ```yaml
 team:
@@ -55,7 +55,7 @@ agents:
     host: https://api.anthropic.com
     api_key: ${ANTHROPIC_API_KEY}
     max_tokens: 4096
-    rules: ["Break down tasks", "Review output"]
+    rules: ["Break down tasks", "Review output before approving"]
 
   - name: "junior"
     role: junior
@@ -63,18 +63,125 @@ agents:
     host: https://api.deepseek.com/v1
     api_key: ${DEEPSEEK_API_KEY}
     max_tokens: 2048
-    rules: ["Execute assigned tasks", "Write tests"]
+    rules: ["Execute assigned tasks", "Write tests for all code"]
 ```
 
-### 2. Run a task
+### 2. Register with your IDE (one-time)
+
+<details open>
+<summary><strong>Claude Code</strong></summary>
 
 ```bash
-openswarm run "Build user auth API" --config team.yaml
+claude mcp add openswarm -- openswarm-mcp
+```
+</details>
+
+<details>
+<summary><strong>Cursor</strong></summary>
+
+Go to **Cursor Settings → MCP → Add new MCP server**:
+
+- Name: `openswarm`
+- Type: `command`
+- Command: `openswarm-mcp`
+</details>
+
+<details>
+<summary><strong>GitHub Copilot (VS Code)</strong></summary>
+
+Add to VS Code `settings.json`:
+
+```json
+{
+  "github.copilot.chat.mcp.servers": {
+    "openswarm": {
+      "command": "openswarm-mcp",
+      "args": []
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><strong>Windsurf</strong></summary>
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "openswarm": {
+      "command": "openswarm-mcp",
+      "args": []
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><strong>OpenCode</strong></summary>
+
+Add to your `opencode.json`:
+
+```json
+{
+  "mcp": {
+    "openswarm": {
+      "type": "local",
+      "command": ["openswarm-mcp"],
+      "timeout": 300000
+    }
+  }
+}
+```
+</details>
+
+### 3. Use your IDE normally
+
+That's it. Open your project, give coding tasks — your IDE automatically delegates to the team. No special commands, no prompting needed.
+
+### Supported IDEs
+
+| Tool | Integration | Status |
+|------|------------|--------|
+| **Claude Code** | MCP server (auto-discovery via `.mcp.json`) | Ready |
+| **OpenCode** | MCP server (auto-discovery via `opencode.json`) | Ready |
+| **Cursor** | MCP server (via Cursor settings) | Ready |
+| **Windsurf** | MCP server (via `~/.codeium/windsurf/mcp_config.json`) | Ready |
+| **GitHub Copilot** | MCP server (via VS Code `settings.json`) | Ready |
+
+Any tool that supports MCP works with OpenSwarm — the setup is the same pattern everywhere.
+
+## How It Works
+
+```
+User: "Build user auth API"
+  ↓
+Senior (Claude): decomposes task
+  ├── "Write User model" → Junior (DeepSeek)
+  ├── "Write endpoints"  → Junior (DeepSeek)
+  └── "Design JWT strategy" → Senior handles directly
+  ↓
+Junior returns code → Senior reviews → requests fixes or approves
+  ↓
+Final result → User
 ```
 
-### 3. Or use it from your AI IDE
+**How does the IDE know to use OpenSwarm?** When `team.yaml` exists in your project, the MCP server tells your IDE to delegate all coding tasks to the team automatically. You just use your IDE normally.
 
-See [Integration](#integration) below — one-time setup, then your IDE delegates to the team automatically.
+**What if the task doesn't match the team?** For example, you have a frontend team but ask a backend question. The team's lead agent recognizes it's outside their scope and says so — your IDE then handles it directly. You never need to decide; just ask, and the system routes it to the right place.
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `openswarm_run(task, team?)` | Delegate a task to an agent team (auto-selects if one team exists) |
+| `openswarm_teams()` | List available teams (local + global) |
+| `openswarm_team_info(team)` | Show team details — agents, models, workflow |
+
+Config discovery: `team.yaml` / `openswarm.yaml` in project root, `openswarm/*.yaml` subdirectory, and `~/.openswarm/teams/` globally.
 
 ## CLI Usage
 
@@ -108,130 +215,6 @@ openswarm interactive --team backend -v  # with real-time message display
 ```
 
 Slash commands: `/quit`, `/team`, `/history`, `/clear`. Ctrl+C cancels current task without exiting.
-
-## Integration
-
-Use OpenSwarm from your AI IDE — add a `team.yaml` to your project and the IDE delegates to your agent team automatically. No special prompting needed.
-
-### Supported IDEs
-
-| Tool | Integration | Status |
-|------|------------|--------|
-| **Claude Code** | MCP server (auto-discovery via `.mcp.json`) | Ready |
-| **OpenCode** | MCP server (auto-discovery via `opencode.json`) | Ready |
-| **Cursor** | MCP server (via Cursor settings) | Ready |
-| **Windsurf** | MCP server (via `~/.codeium/windsurf/mcp_config.json`) | Ready |
-| **GitHub Copilot** | MCP server (via VS Code `settings.json`) | Ready |
-
-Any tool that supports MCP works with OpenSwarm.
-
-### Setup (one-time)
-
-Register the MCP server with your IDE:
-
-<details>
-<summary><strong>Claude Code</strong></summary>
-
-```bash
-claude mcp add openswarm -- openswarm-mcp
-```
-</details>
-
-<details>
-<summary><strong>OpenCode</strong></summary>
-
-Add to your `opencode.json`:
-
-```json
-{
-  "mcp": {
-    "openswarm": {
-      "type": "local",
-      "command": ["openswarm-mcp"],
-      "timeout": 300000
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>Cursor</strong></summary>
-
-Go to **Cursor Settings → MCP → Add new MCP server**:
-
-- Name: `openswarm`
-- Type: `command`
-- Command: `openswarm-mcp`
-</details>
-
-<details>
-<summary><strong>Windsurf</strong></summary>
-
-Add to `~/.codeium/windsurf/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "openswarm": {
-      "command": "openswarm-mcp",
-      "args": []
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>GitHub Copilot (VS Code)</strong></summary>
-
-Add to VS Code `settings.json`:
-
-```json
-{
-  "github.copilot.chat.mcp.servers": {
-    "openswarm": {
-      "command": "openswarm-mcp",
-      "args": []
-    }
-  }
-}
-```
-</details>
-
-### How it works
-
-1. The MCP server auto-discovers `team.yaml` from the working directory
-2. It tells your IDE: "always delegate coding tasks to the team"
-3. Your IDE sends every coding task to `openswarm_run` automatically
-4. The team handles it if it's within scope — if not, the team says so and the IDE handles it directly
-
-**What if the task doesn't match the team?** For example, you have a frontend team but ask a backend question. The team's lead agent will recognize it's outside their scope and respond accordingly. Your IDE then handles it directly. You never need to decide — just ask, and the system routes it to the right place.
-
-### MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `openswarm_run(task, team?)` | Delegate a task to an agent team (auto-selects if one team exists) |
-| `openswarm_teams()` | List available teams (local + global) |
-| `openswarm_team_info(team)` | Show team details — agents, models, workflow |
-
-Config discovery: `team.yaml` / `openswarm.yaml` in project root, `openswarm/*.yaml` subdirectory, and `~/.openswarm/teams/` globally.
-
-## How It Works
-
-```
-User: "Build user auth API"
-  ↓
-Senior (Claude): decomposes task
-  ├── "Write User model" → Junior (DeepSeek)
-  ├── "Write endpoints"  → Junior (DeepSeek)
-  └── "Design JWT strategy" → Senior handles directly
-  ↓
-Junior returns code → Senior reviews → requests fixes or approves
-  ↓
-Final result → User
-```
 
 ## Team Config
 
@@ -269,17 +252,19 @@ agents:
 
 ### Agent Config Fields
 
-| Field | Default | Description |
-|-------|---------|-------------|
-| `name` | required | Agent identifier |
-| `role` | required | Agent role description |
-| `model` | required | LLM model name |
-| `host` | required | API endpoint URL |
-| `api_key` | required | API key (supports `${ENV_VAR}` syntax) |
-| `max_tokens` | `4096` | Max tokens per response (≥ 1) |
-| `temperature` | `0.7` | Sampling temperature (0.0–2.0) |
-| `max_history` | `40` | Max messages kept in agent history (≥ 1) |
-| `rules` | `[]` | Agent behavior rules |
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `name` | yes | — | Agent identifier |
+| `role` | yes | — | What this agent does |
+| `model` | yes | — | LLM model name |
+| `host` | yes | — | API endpoint URL (OpenAI-compatible) |
+| `api_key` | yes | — | API key (supports `${ENV_VAR}` syntax) |
+| `max_tokens` | no | `4096` | Max tokens per response (≥ 1) |
+| `temperature` | no | `0.7` | Sampling temperature (0.0–2.0) |
+| `max_history` | no | `40` | Max messages kept in agent history (≥ 1) |
+| `rules` | no | `[]` | Agent behavior rules |
+
+**What models can I use?** Any model with an OpenAI-compatible API — Claude, GPT, DeepSeek, Mistral, Llama, local models via Ollama. If [litellm](https://docs.litellm.ai/docs/providers) supports it, OpenSwarm supports it.
 
 ## Workflow Types
 
@@ -345,16 +330,9 @@ Requires at least 2 agents. No `lead` field needed.
 - `openswarm run` shows clean error output instead of tracebacks
 - Config validation catches problems at load time (missing lead agent, invalid temperature/token values)
 
-## Environment Variables
+## Cost Comparison
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `OPENSWARM_CONFIG_DIR` | `~/.openswarm` | Config directory |
-| `OPENSWARM_LOG_LEVEL` | `INFO` | Log level |
-
-## Why OpenSwarm? Cost Comparison
-
-Running everything through one expensive model wastes money. Most coding tasks — writing boilerplate, implementing endpoints, writing tests — don't need the most capable model. OpenSwarm lets you route work to the right model.
+Why pay for an expensive model to write boilerplate? Let the cheap model do the heavy lifting.
 
 ### Example: "Build user auth API"
 
@@ -395,6 +373,13 @@ Running everything through one expensive model wastes money. Most coding tasks �
 | With Opus as lead | ~$3.00 | ~$0.85 | 72% |
 
 The more work you can route to cheap models, the more you save. Senior handles ~20% of tokens but makes the decisions that matter.
+
+## Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OPENSWARM_CONFIG_DIR` | `~/.openswarm` | Global config directory |
+| `OPENSWARM_LOG_LEVEL` | `INFO` | Log level |
 
 ## Development
 
