@@ -1,5 +1,9 @@
 # OpenSwarm
 
+[![PyPI version](https://img.shields.io/pypi/v/openswarm-ai?label=pypi)](https://pypi.org/project/openswarm-ai/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://pypi.org/project/openswarm-ai/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/erfamm/openswarm/blob/master/LICENSE)
+
 Design AI teams in YAML. Cheap models do bulk work, expensive models make decisions — you control who does what.
 
 ```yaml
@@ -26,8 +30,8 @@ Senior breaks it down, delegates to Junior, reviews results, assembles final out
 ```bash
 pip install openswarm-ai
 
-# With MCP server support
-pip install openswarm-ai[mcp]
+# With MCP server support (for Claude Code, Cursor, etc.)
+pip install "openswarm-ai[mcp]"
 ```
 
 ## Integration
@@ -49,7 +53,7 @@ Any tool that supports MCP works with OpenSwarm — the setup is the same patter
 ### Setup (one-time)
 
 ```bash
-pip install openswarm-ai[mcp]
+pip install "openswarm-ai[mcp]"
 ```
 
 Then register the MCP server with your tool:
@@ -154,7 +158,7 @@ agents:
     rules: ["Execute assigned tasks", "Write tests"]
 ```
 
-That's it. The MCP server auto-discovers `team.yaml` from the working directory. Claude Code and OpenCode see the tools and delegate when the task matches — no special prompting needed.
+That's it. The MCP server auto-discovers `team.yaml` from the working directory. Your AI IDE sees the tools and delegates when the task matches — no special prompting needed.
 
 ### MCP Tools
 
