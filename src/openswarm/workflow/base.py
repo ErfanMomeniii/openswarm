@@ -10,6 +10,7 @@ from openswarm.core.task import Task
 from openswarm.core.team import Team
 
 MessageCallback = Callable[[Message], None]
+ProgressCallback = Callable[[str, str], None]  # (agent_name, chunk)
 
 
 class Workflow(ABC):
@@ -23,6 +24,7 @@ class Workflow(ABC):
         max_rounds: int,
         message_log: list[Message],
         on_message: MessageCallback | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> str:
         """Run the workflow and return the final result string."""
         ...

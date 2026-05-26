@@ -11,6 +11,8 @@ import litellm
 from openswarm.config.models import AgentConfig
 from openswarm.llm.client import LLMClient, LLMError
 
+from conftest import mock_acompletion_stream
+
 
 @pytest.fixture
 def agent_config() -> AgentConfig:
@@ -87,3 +89,61 @@ async def test_raise_llm_error_after_retry_exhausted(client: LLMClient):
             with pytest.raises(LLMError, match="after 3 attempts"):
                 await client.chat([{"role": "user", "content": "hi"}])
     assert mock.call_count == 3
+
+
+# --- Streaming tests ---
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_accumulates_result(client: LLMClient):
+    mock = mock_acompletion_stream("hello world")
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await client.chat_stream([{"role": "user", "content": "hi"}])
+    assert result == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_calls_on_token(client: LLMClient):
+    tokens: list[str] = []
+    mock = mock_acompletion_stream("abc")
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await client.chat_stream(
+            [{"role": "user", "content": "hi"}], on_token=tokens.append
+        )
+    assert result == "abc"
+    assert tokens == ["a", "b", "c"]
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_passes_stream_true(client: LLMClient):
+    mock = mock_acompletion_stream("ok")
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        await client.chat_stream([{"role": "user", "content": "hi"}])
+    assert mock.call_args.kwargs["stream"] is True
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_retries_on_transient_error(client: LLMClient):
+    error = litellm.RateLimitError("rate limited", "model", "provider", None)
+
+    async def _stream():
+        for ch in "recovered":
+            chunk = MagicMock()
+            chunk.choices = [MagicMock()]
+            chunk.choices[0].delta.content = ch
+            yield chunk
+
+    mock = AsyncMock(side_effect=[error, _stream()])
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        with patch("openswarm.llm.client.asyncio.sleep", new_callable=AsyncMock):
+            result = await client.chat_stream([{"role": "user", "content": "hi"}])
+    assert result == "recovered"
+    assert mock.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_raises_on_permanent_failure(client: LLMClient):
+    mock = AsyncMock(side_effect=litellm.AuthenticationError("bad key", "model", "provider", None))
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        with pytest.raises(LLMError, match="bad key"):
+            await client.chat_stream([{"role": "user", "content": "hi"}])

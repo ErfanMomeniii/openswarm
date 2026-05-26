@@ -8,7 +8,7 @@ from openswarm.core.agent import COLLABORATIVE_PROTOCOL
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
-from openswarm.workflow.base import MessageCallback, Workflow
+from openswarm.workflow.base import MessageCallback, ProgressCallback, Workflow
 from openswarm.workflow.hierarchical import _parse_agent_response
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ class CollaborativeWorkflow(Workflow):
         max_rounds: int,
         message_log: list[Message],
         on_message: MessageCallback | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> str:
         def _log(msg: Message) -> None:
             message_log.append(msg)
@@ -54,7 +55,17 @@ class CollaborativeWorkflow(Workflow):
                 )
                 _log(input_msg)
 
-                raw = await agent.respond(input_msg, protocol_override=COLLABORATIVE_PROTOCOL)
+                if on_progress is not None:
+                    _name = agent_name
+
+                    def chunk_cb(chunk: str) -> None:
+                        on_progress(_name, chunk)
+
+                    raw = await agent.respond_stream(
+                        input_msg, protocol_override=COLLABORATIVE_PROTOCOL, on_chunk=chunk_cb
+                    )
+                else:
+                    raw = await agent.respond(input_msg, protocol_override=COLLABORATIVE_PROTOCOL)
 
                 # Parse response
                 action = "discuss"
@@ -98,7 +109,17 @@ class CollaborativeWorkflow(Workflow):
         )
         _log(synthesis_msg)
 
-        raw = await moderator.respond(synthesis_msg, protocol_override=COLLABORATIVE_PROTOCOL)
+        if on_progress is not None:
+            _mod_name = moderator_name
+
+            def mod_chunk_cb(chunk: str) -> None:
+                on_progress(_mod_name, chunk)
+
+            raw = await moderator.respond_stream(
+                synthesis_msg, protocol_override=COLLABORATIVE_PROTOCOL, on_chunk=mod_chunk_cb
+            )
+        else:
+            raw = await moderator.respond(synthesis_msg, protocol_override=COLLABORATIVE_PROTOCOL)
 
         # Parse final response
         final_content = raw

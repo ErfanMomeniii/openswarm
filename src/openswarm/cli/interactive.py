@@ -21,6 +21,7 @@ SLASH_COMMANDS = {
     "/team": "Show current team info",
     "/history": "Show message history",
     "/clear": "Clear message history",
+    "/stream": "Toggle streaming output on/off",
 }
 
 
@@ -28,6 +29,7 @@ def _handle_slash_command(
     command: str,
     team: Team,
     orchestrator: Orchestrator,
+    stream_state: list[bool],
 ) -> bool:
     """Handle slash command. Return True if REPL should exit."""
     cmd = command.strip().lower()
@@ -65,9 +67,30 @@ def _handle_slash_command(
         console.print("[dim]Message history cleared.[/dim]\n")
         return False
 
+    if cmd == "/stream":
+        stream_state[0] = not stream_state[0]
+        status = "on" if stream_state[0] else "off"
+        console.print(f"[dim]Streaming {status}.[/dim]\n")
+        return False
+
     console.print(f"[red]Unknown command: {cmd}[/red]")
     console.print("Available: " + ", ".join(SLASH_COMMANDS))
     return False
+
+
+def _make_stream_printer() -> callable:
+    """Create a progress callback that prints streaming tokens with agent labels."""
+    current_agent: list[str] = [""]
+
+    def on_progress(agent_name: str, chunk: str) -> None:
+        if agent_name != current_agent[0]:
+            if current_agent[0]:
+                console.print()
+            console.print(f"[bold cyan][{agent_name}][/bold cyan] ", end="")
+            current_agent[0] = agent_name
+        console.print(chunk, end="", highlight=False)
+
+    return on_progress
 
 
 def run_interactive(team: Team, verbose: bool = False) -> None:
@@ -75,6 +98,7 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
     workflow = get_workflow(team.config.workflow.type)
     orchestrator = Orchestrator(team, workflow)
     on_message = make_message_printer() if verbose else None
+    stream_state: list[bool] = [False]
 
     console.print(
         Panel(
@@ -101,15 +125,21 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
             continue
 
         if text.startswith("/"):
-            should_exit = _handle_slash_command(text, team, orchestrator)
+            should_exit = _handle_slash_command(text, team, orchestrator, stream_state)
             if should_exit:
                 console.print("[dim]Bye.[/dim]")
                 break
             continue
 
+        on_progress = _make_stream_printer() if stream_state[0] else None
+
         console.print("[bold yellow]Running...[/bold yellow]\n")
         try:
-            result = asyncio.run(orchestrator.run(text, on_message=on_message))
+            result = asyncio.run(
+                orchestrator.run(text, on_message=on_message, on_progress=on_progress)
+            )
+            if stream_state[0]:
+                console.print("\n")
             console.print(Panel(result, title="Result", border_style="green"))
         except KeyboardInterrupt:
             console.print("\n[yellow]Task cancelled.[/yellow]")

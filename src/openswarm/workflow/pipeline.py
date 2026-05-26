@@ -7,7 +7,7 @@ import logging
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
-from openswarm.workflow.base import MessageCallback, Workflow
+from openswarm.workflow.base import MessageCallback, ProgressCallback, Workflow
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,7 @@ class PipelineWorkflow(Workflow):
         max_rounds: int,
         message_log: list[Message],
         on_message: MessageCallback | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> str:
         def _log(msg: Message) -> None:
             message_log.append(msg)
@@ -48,7 +49,15 @@ class PipelineWorkflow(Workflow):
             _log(input_msg)
 
             logger.info(f"Pipeline step {i + 1}/{len(agent_names)}: {agent_name}")
-            response_text = await agent.respond(input_msg)
+            if on_progress is not None:
+                _name = agent_name
+
+                def chunk_cb(chunk: str) -> None:
+                    on_progress(_name, chunk)
+
+                response_text = await agent.respond_stream(input_msg, on_chunk=chunk_cb)
+            else:
+                response_text = await agent.respond(input_msg)
 
             result_msg = Message(
                 from_agent=agent_name,

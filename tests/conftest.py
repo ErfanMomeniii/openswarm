@@ -123,3 +123,22 @@ def mock_acompletion(*responses: str) -> AsyncMock:
         side_effects.append(resp)
     mock.side_effect = side_effects
     return mock
+
+
+def mock_acompletion_stream(*responses: str) -> AsyncMock:
+    """Create a mock for litellm.acompletion that returns streaming async generators."""
+    mock = AsyncMock()
+
+    async def _make_stream(text: str):
+        """Yield chunks simulating a streaming response."""
+        for char in text:
+            chunk = MagicMock()
+            chunk.choices = [MagicMock()]
+            chunk.choices[0].delta.content = char
+            yield chunk
+
+    side_effects = []
+    for text in responses:
+        side_effects.append(_make_stream(text))
+    mock.side_effect = side_effects
+    return mock

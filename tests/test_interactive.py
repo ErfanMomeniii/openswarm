@@ -88,7 +88,7 @@ def test_slash_quit(team_config: TeamConfig):
 
     team = Team(team_config)
     orch = Orchestrator(team, HierarchicalWorkflow())
-    assert _handle_slash_command("/quit", team, orch) is True
+    assert _handle_slash_command("/quit", team, orch, [False]) is True
 
 
 def test_slash_team(team_config: TeamConfig):
@@ -96,7 +96,7 @@ def test_slash_team(team_config: TeamConfig):
 
     team = Team(team_config)
     orch = Orchestrator(team, HierarchicalWorkflow())
-    assert _handle_slash_command("/team", team, orch) is False
+    assert _handle_slash_command("/team", team, orch, [False]) is False
 
 
 def test_slash_history_empty(team_config: TeamConfig):
@@ -104,7 +104,7 @@ def test_slash_history_empty(team_config: TeamConfig):
 
     team = Team(team_config)
     orch = Orchestrator(team, HierarchicalWorkflow())
-    assert _handle_slash_command("/history", team, orch) is False
+    assert _handle_slash_command("/history", team, orch, [False]) is False
 
 
 def test_slash_clear(team_config: TeamConfig):
@@ -115,7 +115,7 @@ def test_slash_clear(team_config: TeamConfig):
     orch.message_log.append(
         Message(from_agent="a", to_agent="b", type=MessageType.TASK, content="x")
     )
-    _handle_slash_command("/clear", team, orch)
+    _handle_slash_command("/clear", team, orch, [False])
     assert len(orch.message_log) == 0
 
 
@@ -131,10 +131,22 @@ def test_slash_clear_resets_agent_histories(team_config: TeamConfig):
         agent.history.append({"role": "user", "content": "old msg"})
         agent.history.append({"role": "assistant", "content": "old reply"})
 
-    _handle_slash_command("/clear", team, orch)
+    _handle_slash_command("/clear", team, orch, [False])
 
     for agent in team.agents.values():
         assert len(agent.history) == 0
+
+
+def test_slash_stream_toggle(team_config: TeamConfig):
+    from openswarm.cli.interactive import _handle_slash_command
+
+    team = Team(team_config)
+    orch = Orchestrator(team, HierarchicalWorkflow())
+    stream_state = [False]
+    assert _handle_slash_command("/stream", team, orch, stream_state) is False
+    assert stream_state[0] is True
+    assert _handle_slash_command("/stream", team, orch, stream_state) is False
+    assert stream_state[0] is False
 
 
 def test_slash_unknown(team_config: TeamConfig):
@@ -142,7 +154,7 @@ def test_slash_unknown(team_config: TeamConfig):
 
     team = Team(team_config)
     orch = Orchestrator(team, HierarchicalWorkflow())
-    assert _handle_slash_command("/nope", team, orch) is False
+    assert _handle_slash_command("/nope", team, orch, [False]) is False
 
 
 # --- make_message_printer (now in cli.utils) ---

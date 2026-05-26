@@ -10,7 +10,7 @@ from openswarm.config.models import AgentConfig
 from openswarm.core.agent import COLLABORATIVE_PROTOCOL, Agent
 from openswarm.core.message import Message, MessageType
 
-from conftest import mock_acompletion
+from conftest import mock_acompletion, mock_acompletion_stream
 
 
 @pytest.fixture
@@ -143,3 +143,57 @@ def test_config_max_history(agent_config: AgentConfig):
     agent_config_custom = agent_config.model_copy(update={"max_history": 20})
     agent = Agent(agent_config_custom, max_history=agent_config_custom.max_history)
     assert agent.max_history == 20
+
+
+# --- respond_stream ---
+
+
+@pytest.mark.asyncio
+async def test_respond_stream_calls_llm_stream(agent: Agent):
+    msg = Message(
+        from_agent="user",
+        to_agent="tester",
+        type=MessageType.TASK,
+        content="Analyze this",
+    )
+    response_text = '{"action": "result", "content": "streamed analysis"}'
+    mock = mock_acompletion_stream(response_text)
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await agent.respond_stream(msg)
+
+    assert result == response_text
+    assert mock.call_args.kwargs["stream"] is True
+
+
+@pytest.mark.asyncio
+async def test_respond_stream_fires_chunks(agent: Agent):
+    msg = Message(
+        from_agent="user",
+        to_agent="tester",
+        type=MessageType.TASK,
+        content="Do it",
+    )
+    chunks: list[str] = []
+    mock = mock_acompletion_stream("abc")
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await agent.respond_stream(msg, on_chunk=chunks.append)
+
+    assert result == "abc"
+    assert chunks == ["a", "b", "c"]
+
+
+@pytest.mark.asyncio
+async def test_respond_stream_appends_history(agent: Agent):
+    msg = Message(
+        from_agent="user",
+        to_agent="tester",
+        type=MessageType.TASK,
+        content="Do it",
+    )
+    mock = mock_acompletion_stream('{"action": "result", "content": "done"}')
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        await agent.respond_stream(msg)
+
+    assert len(agent.history) == 2
+    assert agent.history[0]["role"] == "user"
+    assert agent.history[1]["role"] == "assistant"

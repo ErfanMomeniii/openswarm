@@ -7,7 +7,7 @@ import logging
 from openswarm.core.message import Message
 from openswarm.core.task import Task
 from openswarm.core.team import Team
-from openswarm.workflow.base import MessageCallback, Workflow
+from openswarm.workflow.base import MessageCallback, ProgressCallback, Workflow
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +25,11 @@ class Orchestrator:
         self,
         task_description: str,
         on_message: MessageCallback | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> str:
         """Execute a task through the workflow and return the final result."""
         task = Task(description=task_description)
         result = await self.workflow.execute(
-            task, self.team, self.max_rounds, self.message_log, on_message
+            task, self.team, self.max_rounds, self.message_log, on_message, on_progress
         )
         return result

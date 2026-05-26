@@ -65,6 +65,21 @@ def _resolve_config(
     return str(team_path)
 
 
+def _make_stream_printer() -> callable:
+    """Create a progress callback that prints streaming tokens with agent labels."""
+    current_agent: list[str] = [""]  # mutable container for closure
+
+    def on_progress(agent_name: str, chunk: str) -> None:
+        if agent_name != current_agent[0]:
+            if current_agent[0]:
+                console.print()  # newline after previous agent's output
+            console.print(f"[bold cyan][{agent_name}][/bold cyan] ", end="")
+            current_agent[0] = agent_name
+        console.print(chunk, end="", highlight=False)
+
+    return on_progress
+
+
 @app.command()
 def run(
     task: str = typer.Argument(help="Task description for the team"),
@@ -73,6 +88,7 @@ def run(
         None, "--team", "-t", help="Team name (looks up in config dir)"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show inter-agent messages"),
+    stream: bool = typer.Option(False, "--stream", "-s", help="Stream agent output in real-time"),
 ) -> None:
     """Run a task with a configured agent team."""
     _setup_logging(verbose)
@@ -97,15 +113,18 @@ def run(
     orchestrator = Orchestrator(team_obj, workflow)
 
     on_message = make_message_printer() if verbose else None
+    on_progress = _make_stream_printer() if stream else None
 
     console.print("\n[bold yellow]Running...[/bold yellow]\n")
 
     try:
-        result = asyncio.run(orchestrator.run(task, on_message=on_message))
+        result = asyncio.run(orchestrator.run(task, on_message=on_message, on_progress=on_progress))
     except LLMError as e:
         console.print(f"[red]LLM error: {e}[/red]")
         raise typer.Exit(1)
 
+    if stream:
+        console.print("\n")  # newline after streaming output
     console.print(Panel(result, title="Result", border_style="green"))
 
 

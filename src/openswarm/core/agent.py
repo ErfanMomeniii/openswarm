@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 
 from openswarm.config.models import AgentConfig
 from openswarm.core.message import Message
@@ -139,6 +140,33 @@ class Agent:
 
         logger.debug(f"Agent '{self.name}' calling LLM with {len(messages)} messages")
         response_text = await self.llm.chat(messages)
+
+        self.history.append({"role": "assistant", "content": response_text})
+        return response_text
+
+    async def respond_stream(
+        self,
+        message: Message,
+        is_lead: bool = False,
+        protocol_override: str | None = None,
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> str:
+        """Process incoming message with streaming, return complete LLM response."""
+        system_prompt = self._build_system_prompt(
+            is_lead=is_lead, protocol_override=protocol_override
+        )
+
+        user_content = f"[{message.type.value}] from {message.from_agent}: {message.content}"
+        if message.attachments:
+            user_content += f"\n\nAttachments:\n{json.dumps(message.attachments, indent=2)}"
+
+        self.history.append({"role": "user", "content": user_content})
+        self._trim_history()
+
+        messages = [{"role": "system", "content": system_prompt}] + self.history
+
+        logger.debug(f"Agent '{self.name}' calling LLM (streaming) with {len(messages)} messages")
+        response_text = await self.llm.chat_stream(messages, on_token=on_chunk)
 
         self.history.append({"role": "assistant", "content": response_text})
         return response_text

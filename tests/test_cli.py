@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from openswarm.cli.app import app
 
-from conftest import SAMPLE_YAML, mock_acompletion, make_llm_response
+from conftest import SAMPLE_YAML, mock_acompletion, mock_acompletion_stream, make_llm_response
 
 runner = CliRunner()
 
@@ -117,3 +117,35 @@ def test_team_info_not_found(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["team-info", "nope"])
     assert result.exit_code == 1
     assert "not found" in result.output
+
+
+# --- Streaming flag ---
+
+
+def test_run_with_stream_flag(tmp_path: Path):
+    config_file = tmp_path / "team.yaml"
+    config_file.write_text(SAMPLE_YAML)
+
+    lead_respond = make_llm_response({"action": "respond", "content": "streamed result"})
+    mock = mock_acompletion_stream(lead_respond)
+
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = runner.invoke(
+            app, ["run", "Do something", "--config", str(config_file), "--stream"]
+        )
+
+    assert result.exit_code == 0
+    assert "streamed result" in result.output
+
+
+def test_run_stream_short_flag(tmp_path: Path):
+    config_file = tmp_path / "team.yaml"
+    config_file.write_text(SAMPLE_YAML)
+
+    lead_respond = make_llm_response({"action": "respond", "content": "ok"})
+    mock = mock_acompletion_stream(lead_respond)
+
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = runner.invoke(app, ["run", "Do something", "--config", str(config_file), "-s"])
+
+    assert result.exit_code == 0

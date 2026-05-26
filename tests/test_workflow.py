@@ -15,7 +15,7 @@ from openswarm.workflow import get_workflow
 from openswarm.workflow.collaborative import CollaborativeWorkflow
 from openswarm.workflow.hierarchical import HierarchicalWorkflow, _parse_agent_response
 
-from conftest import mock_acompletion, make_llm_response
+from conftest import mock_acompletion, mock_acompletion_stream, make_llm_response
 
 
 # --- _parse_agent_response ---
@@ -221,3 +221,65 @@ async def test_workflow_review_unknown_agent(team_config: TeamConfig):
         result = await workflow.execute(task, team, max_rounds=10, message_log=message_log)
 
     assert result == "Done anyway"
+
+
+# --- Streaming / on_progress ---
+
+
+@pytest.mark.asyncio
+async def test_workflow_on_progress_fires_chunks(team_config: TeamConfig):
+    """on_progress callback receives agent name and chunks during streaming."""
+    team = Team(team_config)
+    workflow = HierarchicalWorkflow()
+    task = Task(description="Stream test")
+    message_log: list[Message] = []
+
+    lead_respond = make_llm_response({"action": "respond", "content": "done"})
+    mock = mock_acompletion_stream(lead_respond)
+
+    progress_events: list[tuple[str, str]] = []
+
+    def on_progress(agent_name: str, chunk: str) -> None:
+        progress_events.append((agent_name, chunk))
+
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await workflow.execute(
+            task, team, max_rounds=10, message_log=message_log, on_progress=on_progress
+        )
+
+    assert result == "done"
+    assert len(progress_events) > 0
+    # All chunks should be from the lead agent
+    assert all(name == "lead" for name, _ in progress_events)
+    # Chunks should reconstruct the full response
+    reconstructed = "".join(chunk for _, chunk in progress_events)
+    assert reconstructed == lead_respond
+
+
+@pytest.mark.asyncio
+async def test_workflow_on_progress_with_delegation(team_config: TeamConfig):
+    """on_progress fires for both lead and worker agents."""
+    team = Team(team_config)
+    workflow = HierarchicalWorkflow()
+    task = Task(description="Delegate stream test")
+    message_log: list[Message] = []
+
+    lead_delegate = make_llm_response({"action": "delegate", "to": "worker", "task": "Do work"})
+    worker_result = make_llm_response({"action": "result", "content": "worker done"})
+    lead_respond = make_llm_response({"action": "respond", "content": "all done"})
+
+    mock = mock_acompletion_stream(lead_delegate, worker_result, lead_respond)
+
+    agent_names_seen: set[str] = set()
+
+    def on_progress(agent_name: str, chunk: str) -> None:
+        agent_names_seen.add(agent_name)
+
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await workflow.execute(
+            task, team, max_rounds=10, message_log=message_log, on_progress=on_progress
+        )
+
+    assert result == "all done"
+    assert "lead" in agent_names_seen
+    assert "worker" in agent_names_seen

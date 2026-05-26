@@ -9,7 +9,7 @@ import re
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
-from openswarm.workflow.base import MessageCallback, Workflow
+from openswarm.workflow.base import MessageCallback, ProgressCallback, Workflow
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,7 @@ class HierarchicalWorkflow(Workflow):
         max_rounds: int,
         message_log: list[Message],
         on_message: MessageCallback | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> str:
         def _log(msg: Message) -> None:
             message_log.append(msg)
@@ -113,7 +114,17 @@ class HierarchicalWorkflow(Workflow):
             logger.info(f"Round {round_num + 1}/{max_rounds}")
 
             is_lead = target_agent.name == lead.name
-            raw_response = await target_agent.respond(current_msg, is_lead=is_lead)
+            if on_progress is not None:
+                _name = target_agent.name
+
+                def chunk_cb(chunk: str) -> None:
+                    on_progress(_name, chunk)
+
+                raw_response = await target_agent.respond_stream(
+                    current_msg, is_lead=is_lead, on_chunk=chunk_cb
+                )
+            else:
+                raw_response = await target_agent.respond(current_msg, is_lead=is_lead)
 
             logger.debug(f"Agent '{target_agent.name}' response: {raw_response}")
 
