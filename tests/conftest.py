@@ -120,6 +120,10 @@ def mock_acompletion(*responses: str) -> AsyncMock:
         resp = MagicMock()
         resp.choices = [MagicMock()]
         resp.choices[0].message.content = text
+        resp.usage = MagicMock()
+        resp.usage.prompt_tokens = 10
+        resp.usage.completion_tokens = 20
+        resp.usage.total_tokens = 30
         side_effects.append(resp)
     mock.side_effect = side_effects
     return mock
@@ -131,10 +135,19 @@ def mock_acompletion_stream(*responses: str) -> AsyncMock:
 
     async def _make_stream(text: str):
         """Yield chunks simulating a streaming response."""
-        for char in text:
+        chars = list(text)
+        for i, char in enumerate(chars):
             chunk = MagicMock()
             chunk.choices = [MagicMock()]
             chunk.choices[0].delta.content = char
+            # Add usage data to the final chunk
+            if i == len(chars) - 1:
+                chunk.usage = MagicMock()
+                chunk.usage.prompt_tokens = 10
+                chunk.usage.completion_tokens = 20
+                chunk.usage.total_tokens = 30
+            else:
+                chunk.usage = None
             yield chunk
 
     side_effects = []

@@ -77,6 +77,40 @@ async def test_respond_calls_llm(agent: Agent):
 
 
 @pytest.mark.asyncio
+async def test_respond_populates_usage_log(agent: Agent):
+    msg = Message(
+        from_agent="user",
+        to_agent="tester",
+        type=MessageType.TASK,
+        content="Analyze this",
+    )
+    mock = mock_acompletion('{"action": "result", "content": "done"}')
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        await agent.respond(msg)
+
+    assert len(agent.usage_log) == 1
+    assert agent.usage_log[0].agent_name == "tester"
+    assert agent.usage_log[0].prompt_tokens == 10
+    assert agent.usage_log[0].completion_tokens == 20
+
+
+@pytest.mark.asyncio
+async def test_respond_stream_populates_usage_log(agent: Agent):
+    msg = Message(
+        from_agent="user",
+        to_agent="tester",
+        type=MessageType.TASK,
+        content="Do it",
+    )
+    mock = mock_acompletion_stream('{"action": "result", "content": "done"}')
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        await agent.respond_stream(msg)
+
+    assert len(agent.usage_log) == 1
+    assert agent.usage_log[0].agent_name == "tester"
+
+
+@pytest.mark.asyncio
 async def test_respond_appends_history(agent: Agent):
     msg = Message(
         from_agent="user",

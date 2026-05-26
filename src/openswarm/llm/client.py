@@ -6,11 +6,13 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import httpx
 import litellm
 
 from openswarm.config.models import AgentConfig
+from openswarm.core.usage import UsageStats
 
 litellm.use_aiohttp_transport = False
 litellm.disable_aiohttp_transport = True
@@ -28,6 +30,14 @@ class LLMError(Exception):
         self.original = original
 
 
+@dataclass
+class LLMResult:
+    """LLM response content paired with optional usage stats."""
+
+    content: str
+    usage: UsageStats | None = None
+
+
 # Transient errors worth retrying once
 _TRANSIENT_EXCEPTIONS = (
     litellm.RateLimitError,
@@ -36,6 +46,31 @@ _TRANSIENT_EXCEPTIONS = (
     litellm.ServiceUnavailableError,
     litellm.InternalServerError,
 )
+
+
+def _extract_usage(response, model: str, elapsed: float) -> UsageStats | None:
+    """Extract usage stats from a litellm response, return None on failure."""
+    usage = getattr(response, "usage", None)
+    if not usage:
+        return None
+
+    prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+    completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+
+    cost: float | None = None
+    try:
+        cost = litellm.completion_cost(completion_response=response)
+    except Exception:
+        pass
+
+    return UsageStats(
+        agent_name="",  # filled by Agent
+        model=model,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cost_usd=cost,
+        elapsed_seconds=elapsed,
+    )
 
 
 class LLMClient:
@@ -48,8 +83,8 @@ class LLMClient:
         self.max_tokens = config.max_tokens
         self.temperature = config.temperature
 
-    async def chat(self, messages: list[dict[str, str]]) -> str:
-        """Send messages to LLM, return assistant response text.
+    async def chat(self, messages: list[dict[str, str]]) -> LLMResult:
+        """Send messages to LLM, return LLMResult with content and usage.
 
         Retries up to 2 times on transient errors (rate limit, timeout, connection).
         Raises LLMError on permanent failures.
@@ -75,11 +110,13 @@ class LLMClient:
                 )
                 elapsed = time.monotonic() - start
 
-                usage = getattr(response, "usage", None)
-                tokens = f", tokens={usage.total_tokens}" if usage else ""
+                usage_stats = _extract_usage(response, self.model, elapsed)
+
+                tokens = f", tokens={usage_stats.total_tokens}" if usage_stats else ""
                 logger.info(f"LLM call to {self.model}: {elapsed:.2f}s{tokens}")
 
-                return response.choices[0].message.content
+                content = response.choices[0].message.content
+                return LLMResult(content=content, usage=usage_stats)
 
             except _TRANSIENT_EXCEPTIONS as e:
                 last_error = e
@@ -101,8 +138,8 @@ class LLMClient:
         self,
         messages: list[dict[str, str]],
         on_token: Callable[[str], None] | None = None,
-    ) -> str:
-        """Send messages to LLM with streaming, return accumulated response text.
+    ) -> LLMResult:
+        """Send messages to LLM with streaming, return LLMResult.
 
         Calls on_token(chunk) for each streamed token. Same retry logic as chat().
         """
@@ -128,7 +165,9 @@ class LLMClient:
                 )
 
                 accumulated = []
+                last_chunk = None
                 async for chunk in response:
+                    last_chunk = chunk
                     delta = chunk.choices[0].delta
                     content = getattr(delta, "content", None)
                     if content:
@@ -138,8 +177,15 @@ class LLMClient:
 
                 elapsed = time.monotonic() - start
                 result = "".join(accumulated)
-                logger.info(f"Streaming LLM call to {self.model}: {elapsed:.2f}s")
-                return result
+
+                # Try to extract usage from the final chunk
+                usage_stats = (
+                    _extract_usage(last_chunk, self.model, elapsed) if last_chunk else None
+                )
+
+                tokens = f", tokens={usage_stats.total_tokens}" if usage_stats else ""
+                logger.info(f"Streaming LLM call to {self.model}: {elapsed:.2f}s{tokens}")
+                return LLMResult(content=result, usage=usage_stats)
 
             except _TRANSIENT_EXCEPTIONS as e:
                 last_error = e

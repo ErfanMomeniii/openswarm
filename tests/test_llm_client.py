@@ -9,7 +9,7 @@ import pytest
 import litellm
 
 from openswarm.config.models import AgentConfig
-from openswarm.llm.client import LLMClient, LLMError
+from openswarm.llm.client import LLMClient, LLMError, LLMResult
 
 from conftest import mock_acompletion_stream
 
@@ -36,6 +36,8 @@ def _make_response(content: str) -> MagicMock:
     resp.choices = [MagicMock()]
     resp.choices[0].message.content = content
     resp.usage = MagicMock()
+    resp.usage.prompt_tokens = 30
+    resp.usage.completion_tokens = 12
     resp.usage.total_tokens = 42
     return resp
 
@@ -45,7 +47,8 @@ async def test_successful_call(client: LLMClient):
     mock = AsyncMock(return_value=_make_response("hello"))
     with patch("openswarm.llm.client.litellm.acompletion", mock):
         result = await client.chat([{"role": "user", "content": "hi"}])
-    assert result == "hello"
+    assert isinstance(result, LLMResult)
+    assert result.content == "hello"
 
 
 @pytest.mark.asyncio
@@ -67,7 +70,7 @@ async def test_retry_on_transient_error(client: LLMClient):
     with patch("openswarm.llm.client.litellm.acompletion", mock):
         with patch("openswarm.llm.client.asyncio.sleep", new_callable=AsyncMock):
             result = await client.chat([{"role": "user", "content": "hi"}])
-    assert result == "recovered"
+    assert result.content == "recovered"
     assert mock.call_count == 2
 
 
@@ -99,7 +102,8 @@ async def test_chat_stream_accumulates_result(client: LLMClient):
     mock = mock_acompletion_stream("hello world")
     with patch("openswarm.llm.client.litellm.acompletion", mock):
         result = await client.chat_stream([{"role": "user", "content": "hi"}])
-    assert result == "hello world"
+    assert isinstance(result, LLMResult)
+    assert result.content == "hello world"
 
 
 @pytest.mark.asyncio
@@ -110,7 +114,7 @@ async def test_chat_stream_calls_on_token(client: LLMClient):
         result = await client.chat_stream(
             [{"role": "user", "content": "hi"}], on_token=tokens.append
         )
-    assert result == "abc"
+    assert result.content == "abc"
     assert tokens == ["a", "b", "c"]
 
 
@@ -137,7 +141,7 @@ async def test_chat_stream_retries_on_transient_error(client: LLMClient):
     with patch("openswarm.llm.client.litellm.acompletion", mock):
         with patch("openswarm.llm.client.asyncio.sleep", new_callable=AsyncMock):
             result = await client.chat_stream([{"role": "user", "content": "hi"}])
-    assert result == "recovered"
+    assert result.content == "recovered"
     assert mock.call_count == 2
 
 
@@ -147,3 +151,40 @@ async def test_chat_stream_raises_on_permanent_failure(client: LLMClient):
     with patch("openswarm.llm.client.litellm.acompletion", mock):
         with pytest.raises(LLMError, match="bad key"):
             await client.chat_stream([{"role": "user", "content": "hi"}])
+
+
+# --- Usage tracking tests ---
+
+
+@pytest.mark.asyncio
+async def test_chat_returns_usage_stats(client: LLMClient):
+    mock = AsyncMock(return_value=_make_response("hello"))
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        with patch("openswarm.llm.client.litellm.completion_cost", return_value=0.0015):
+            result = await client.chat([{"role": "user", "content": "hi"}])
+    assert result.usage is not None
+    assert result.usage.total_tokens == 42
+    assert result.usage.model == "gpt-test"
+    assert result.usage.cost_usd == 0.0015
+
+
+@pytest.mark.asyncio
+async def test_chat_usage_none_when_no_usage(client: LLMClient):
+    resp = MagicMock()
+    resp.choices = [MagicMock()]
+    resp.choices[0].message.content = "hello"
+    resp.usage = None
+    mock = AsyncMock(return_value=resp)
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await client.chat([{"role": "user", "content": "hi"}])
+    assert result.usage is None
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_returns_usage_stats(client: LLMClient):
+    mock = mock_acompletion_stream("abc")
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        with patch("openswarm.llm.client.litellm.completion_cost", return_value=0.001):
+            result = await client.chat_stream([{"role": "user", "content": "hi"}])
+    assert result.usage is not None
+    assert result.usage.total_tokens == 30

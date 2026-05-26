@@ -13,6 +13,7 @@ from openswarm.config.discovery import find_team_configs, get_config_dir
 from openswarm.config.loader import load_config
 from openswarm.core.orchestrator import Orchestrator
 from openswarm.core.team import Team
+from openswarm.core.usage import RunResult
 from openswarm.workflow import get_workflow
 
 # File names to look for in project directory (in priority order)
@@ -59,6 +60,25 @@ def find_all_configs(project_dir: Path | None = None) -> dict[str, Path]:
     return configs
 
 
+def _format_usage(run_result: RunResult) -> str:
+    """Format a RunResult as text with usage summary appended."""
+    lines = [run_result.result]
+    usage = run_result.usage
+    if usage.entries:
+        lines.append("\n--- Token Usage ---")
+        for agent_name, summary in usage.by_agent().items():
+            cost_str = f", ${summary.cost_usd:.4f}" if summary.cost_usd is not None else ""
+            lines.append(
+                f"{agent_name} ({summary.model}): "
+                f"{summary.prompt_tokens}p + {summary.completion_tokens}c "
+                f"= {summary.total_tokens} tokens{cost_str}"
+            )
+        total_cost = usage.total_cost
+        cost_total = f", ${total_cost:.4f}" if total_cost is not None else ""
+        lines.append(f"Total: {usage.total_tokens} tokens{cost_total}")
+    return "\n".join(lines)
+
+
 async def run_task(task: str, team_name: str | None = None) -> str:
     """Run a task with a team. Auto-discovers config if no team specified."""
     configs = find_all_configs()
@@ -84,7 +104,8 @@ async def run_task(task: str, team_name: str | None = None) -> str:
     team = Team(team_config)
     workflow = get_workflow(team_config.workflow.type)
     orchestrator = Orchestrator(team, workflow)
-    return await orchestrator.run(task)
+    run_result = await orchestrator.run(task)
+    return _format_usage(run_result)
 
 
 async def run_task_with_config(task: str, config_path: str) -> str:
@@ -101,7 +122,8 @@ async def run_task_with_config(task: str, config_path: str) -> str:
     team = Team(team_config)
     workflow = get_workflow(team_config.workflow.type)
     orchestrator = Orchestrator(team, workflow)
-    return await orchestrator.run(task)
+    run_result = await orchestrator.run(task)
+    return _format_usage(run_result)
 
 
 async def list_teams() -> str:

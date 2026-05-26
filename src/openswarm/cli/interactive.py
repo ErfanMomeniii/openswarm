@@ -9,7 +9,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 from rich.panel import Panel
 
-from openswarm.cli.utils import make_message_printer
+from openswarm.cli.utils import make_message_printer, print_usage_table
 from openswarm.core.orchestrator import Orchestrator
 from openswarm.core.team import Team
 from openswarm.workflow import get_workflow
@@ -135,12 +135,13 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
 
         console.print("[bold yellow]Running...[/bold yellow]\n")
         try:
-            result = asyncio.run(
+            run_result = asyncio.run(
                 orchestrator.run(text, on_message=on_message, on_progress=on_progress)
             )
             if stream_state[0]:
                 console.print("\n")
-            console.print(Panel(result, title="Result", border_style="green"))
+            console.print(Panel(run_result.result, title="Result", border_style="green"))
+            print_usage_table(run_result.usage)
         except KeyboardInterrupt:
             console.print("\n[yellow]Task cancelled.[/yellow]")
         except Exception as e:

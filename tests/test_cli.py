@@ -26,6 +26,7 @@ def test_run_with_config(tmp_path: Path):
 
     assert result.exit_code == 0
     assert "CLI test done" in result.output
+    assert "Token Usage" in result.output
 
 
 def test_run_missing_config():

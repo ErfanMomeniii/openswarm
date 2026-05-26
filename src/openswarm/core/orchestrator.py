@@ -7,6 +7,7 @@ import logging
 from openswarm.core.message import Message
 from openswarm.core.task import Task
 from openswarm.core.team import Team
+from openswarm.core.usage import RunResult, RunUsage
 from openswarm.workflow.base import MessageCallback, ProgressCallback, Workflow
 
 logger = logging.getLogger(__name__)
@@ -26,10 +27,17 @@ class Orchestrator:
         task_description: str,
         on_message: MessageCallback | None = None,
         on_progress: ProgressCallback | None = None,
-    ) -> str:
-        """Execute a task through the workflow and return the final result."""
+    ) -> RunResult:
+        """Execute a task through the workflow and return RunResult with usage."""
         task = Task(description=task_description)
         result = await self.workflow.execute(
             task, self.team, self.max_rounds, self.message_log, on_message, on_progress
         )
-        return result
+
+        # Drain usage from all agents (so interactive runs don't double-count)
+        usage = RunUsage()
+        for agent in self.team.agents.values():
+            usage.entries.extend(agent.usage_log)
+            agent.usage_log.clear()
+
+        return RunResult(result=result, usage=usage)

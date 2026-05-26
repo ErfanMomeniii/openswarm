@@ -11,7 +11,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
-from openswarm.cli.utils import make_message_printer
+from openswarm.cli.utils import make_message_printer, print_usage_table
 from openswarm.config.discovery import find_team_configs, get_config_dir
 from openswarm.config.loader import load_config
 from openswarm.core.orchestrator import Orchestrator
@@ -118,14 +118,17 @@ def run(
     console.print("\n[bold yellow]Running...[/bold yellow]\n")
 
     try:
-        result = asyncio.run(orchestrator.run(task, on_message=on_message, on_progress=on_progress))
+        run_result = asyncio.run(
+            orchestrator.run(task, on_message=on_message, on_progress=on_progress)
+        )
     except LLMError as e:
         console.print(f"[red]LLM error: {e}[/red]")
         raise typer.Exit(1)
 
     if stream:
         console.print("\n")  # newline after streaming output
-    console.print(Panel(result, title="Result", border_style="green"))
+    console.print(Panel(run_result.result, title="Result", border_style="green"))
+    print_usage_table(run_result.usage)
 
 
 @app.command()

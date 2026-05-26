@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 from openswarm.config.models import AgentConfig
 from openswarm.core.message import Message
+from openswarm.core.usage import UsageStats
 from openswarm.llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,7 @@ class Agent:
         self.llm = LLMClient(config)
         self.history: list[dict[str, str]] = []
         self.max_history = max_history
+        self.usage_log: list[UsageStats] = []
 
     def _build_system_prompt(
         self, is_lead: bool = False, protocol_override: str | None = None
@@ -139,10 +141,14 @@ class Agent:
         messages = [{"role": "system", "content": system_prompt}] + self.history
 
         logger.debug(f"Agent '{self.name}' calling LLM with {len(messages)} messages")
-        response_text = await self.llm.chat(messages)
+        llm_result = await self.llm.chat(messages)
 
-        self.history.append({"role": "assistant", "content": response_text})
-        return response_text
+        if llm_result.usage:
+            llm_result.usage.agent_name = self.name
+            self.usage_log.append(llm_result.usage)
+
+        self.history.append({"role": "assistant", "content": llm_result.content})
+        return llm_result.content
 
     async def respond_stream(
         self,
@@ -166,7 +172,11 @@ class Agent:
         messages = [{"role": "system", "content": system_prompt}] + self.history
 
         logger.debug(f"Agent '{self.name}' calling LLM (streaming) with {len(messages)} messages")
-        response_text = await self.llm.chat_stream(messages, on_token=on_chunk)
+        llm_result = await self.llm.chat_stream(messages, on_token=on_chunk)
 
-        self.history.append({"role": "assistant", "content": response_text})
-        return response_text
+        if llm_result.usage:
+            llm_result.usage.agent_name = self.name
+            self.usage_log.append(llm_result.usage)
+
+        self.history.append({"role": "assistant", "content": llm_result.content})
+        return llm_result.content
