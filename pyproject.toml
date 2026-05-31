@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openswarm-ai"
-version = "1.0.3"
+version = "1.1.0"
 description = "Multi-agent orchestration framework"
 authors = [{ name = "Erfan Momeni", email = "erfamm5@gmail.com" }]
 license = { text = "MIT" }
