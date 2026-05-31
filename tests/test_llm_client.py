@@ -188,3 +188,96 @@ async def test_chat_stream_returns_usage_stats(client: LLMClient):
             result = await client.chat_stream([{"role": "user", "content": "hi"}])
     assert result.usage is not None
     assert result.usage.total_tokens == 30
+
+
+# --- Cross-provider streaming chunk shapes ---
+#
+# Different providers emit usage on different chunks:
+#   OpenAI:       terminal chunk with choices=[] carries usage (needs stream_options)
+#   Anthropic:    usage attached to the final content chunk (via litellm normalization)
+#   Ollama:       no usage at all
+# The client must handle all three without crashing or losing data.
+
+
+def _chunk(content=None, usage=None, no_choices=False):
+    c = MagicMock()
+    if no_choices:
+        c.choices = []
+    else:
+        c.choices = [MagicMock()]
+        c.choices[0].delta.content = content
+    if usage is None:
+        c.usage = None
+    else:
+        c.usage = MagicMock()
+        c.usage.prompt_tokens = usage[0]
+        c.usage.completion_tokens = usage[1]
+        c.usage.total_tokens = usage[0] + usage[1]
+    return c
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_openai_terminal_usage_chunk(client: LLMClient):
+    """OpenAI emits a terminal chunk with empty choices that carries usage."""
+
+    async def _stream():
+        yield _chunk(content="Hel")
+        yield _chunk(content="lo")
+        yield _chunk(no_choices=True, usage=(10, 5))  # terminal usage-only
+
+    mock = AsyncMock(return_value=_stream())
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await client.chat_stream([{"role": "user", "content": "hi"}])
+    assert result.content == "Hello"
+    assert result.usage is not None
+    assert result.usage.prompt_tokens == 10
+    assert result.usage.completion_tokens == 5
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_anthropic_usage_on_last_content_chunk(client: LLMClient):
+    """Anthropic via litellm: usage piggybacks on the final content chunk."""
+
+    async def _stream():
+        yield _chunk(content="Hel")
+        yield _chunk(content="lo", usage=(15, 7))
+
+    mock = AsyncMock(return_value=_stream())
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await client.chat_stream([{"role": "user", "content": "hi"}])
+    assert result.content == "Hello"
+    assert result.usage is not None
+    assert result.usage.prompt_tokens == 15
+    assert result.usage.completion_tokens == 7
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_provider_with_no_usage(client: LLMClient):
+    """Some providers (e.g. Ollama) never emit usage — must not crash."""
+
+    async def _stream():
+        yield _chunk(content="Hel")
+        yield _chunk(content="lo")
+
+    mock = AsyncMock(return_value=_stream())
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await client.chat_stream([{"role": "user", "content": "hi"}])
+    assert result.content == "Hello"
+    assert result.usage is None
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_skips_chunks_with_empty_choices_mid_stream(client: LLMClient):
+    """Defensive: empty-choices chunks anywhere in the stream don't crash."""
+
+    async def _stream():
+        yield _chunk(no_choices=True)  # weird leading chunk
+        yield _chunk(content="ok")
+        yield _chunk(no_choices=True, usage=(3, 4))
+
+    mock = AsyncMock(return_value=_stream())
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await client.chat_stream([{"role": "user", "content": "hi"}])
+    assert result.content == "ok"
+    assert result.usage is not None
+    assert result.usage.prompt_tokens == 3

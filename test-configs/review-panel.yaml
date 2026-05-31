@@ -8,8 +8,8 @@ agents:
   - name: "moderator"
     role: tech lead and moderator
     model: openai/kimi/kimi-k2.5
-    host: https://llm.snapp.tech/v1
-    api_key: ${SNAPP_API_KEY}
+    host: ${HOST_URL}
+    api_key: ${API_KEY}
     max_tokens: 1024
     temperature: 0.3
     rules:

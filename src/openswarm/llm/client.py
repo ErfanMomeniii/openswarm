@@ -162,12 +162,16 @@ class LLMClient:
                     max_tokens=self.max_tokens,
                     temperature=self.temperature,
                     stream=True,
+                    stream_options={"include_usage": True},
                 )
 
                 accumulated = []
-                last_chunk = None
+                usage_chunk = None
                 async for chunk in response:
-                    last_chunk = chunk
+                    if getattr(chunk, "usage", None):
+                        usage_chunk = chunk
+                    if not chunk.choices:
+                        continue
                     delta = chunk.choices[0].delta
                     content = getattr(delta, "content", None)
                     if content:
@@ -178,9 +182,9 @@ class LLMClient:
                 elapsed = time.monotonic() - start
                 result = "".join(accumulated)
 
-                # Try to extract usage from the final chunk
+                # OpenAI-compatible streams put usage on a terminal chunk with empty choices.
                 usage_stats = (
-                    _extract_usage(last_chunk, self.model, elapsed) if last_chunk else None
+                    _extract_usage(usage_chunk, self.model, elapsed) if usage_chunk else None
                 )
 
                 tokens = f", tokens={usage_stats.total_tokens}" if usage_stats else ""
