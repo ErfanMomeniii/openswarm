@@ -195,6 +195,9 @@ openswarm run "Fix the login bug" --team backend
 # Verbose — see inter-agent messages in real-time
 openswarm run "Refactor auth module" --config team.yaml -v
 
+# Stream agent output token-by-token as it's generated
+openswarm run "Build a REST API" --config team.yaml --stream
+
 # List all configured teams
 openswarm team-list
 
@@ -214,7 +217,7 @@ openswarm interactive --team backend
 openswarm interactive --team backend -v  # with real-time message display
 ```
 
-Slash commands: `/quit`, `/team`, `/history`, `/clear`. Ctrl+C cancels current task without exiting.
+Slash commands: `/quit`, `/team`, `/history`, `/clear`, `/stream` (toggle streaming). Ctrl+C cancels current task without exiting.
 
 ## Team Config
 
@@ -373,6 +376,24 @@ Why pay for an expensive model to write boilerplate? Let the cheap model do the 
 | With Opus as lead | ~$3.00 | ~$0.85 | 72% |
 
 The more work you can route to cheap models, the more you save. Senior handles ~20% of tokens but makes the decisions that matter.
+
+### See your actual usage
+
+Every run prints a token-usage breakdown — per agent, per model, with totals — so you can verify the split for yourself instead of trusting the numbers above:
+
+```
+                           Token Usage
+┏━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━┓
+┃ Agent  ┃ Model               ┃ Prompt ┃ Completion ┃ Total ┃
+┡━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━┩
+│ senior │ claude-sonnet-4     │    777 │        152 │   929 │
+│ junior │ deepseek-chat       │    442 │        163 │   605 │
+├────────┼─────────────────────┼────────┼────────────┼───────┤
+│ Total  │                     │   1219 │        315 │  1534 │
+└────────┴─────────────────────┴────────┴────────────┴───────┘
+```
+
+A `Cost` column is added automatically when the provider returns price information. The same summary is appended to the MCP tool response, so IDEs see it too.
 
 ## Environment Variables
 
