@@ -402,15 +402,6 @@ A `Cost` column is added automatically when the provider returns price informati
 | `OPENSWARM_CONFIG_DIR` | `~/.openswarm` | Global config directory |
 | `OPENSWARM_LOG_LEVEL` | `INFO` | Log level |
 
-## Development
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,mcp]"
-pytest tests/ -v
-ruff check src/ tests/ && ruff format src/ tests/
-```
-
 ## License
 
 MIT
