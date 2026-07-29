@@ -9,55 +9,34 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openswarm.config.discovery import find_team_configs, get_config_dir
-from openswarm.config.loader import load_config
+from openswarm.config.discovery import (
+    LOCAL_CONFIG_NAMES,
+    TeamResolutionError,
+    config_source,
+    find_all_configs,
+    find_local_configs,
+    find_team_configs,
+    get_teams_dir,
+    resolve_team,
+)
+from openswarm.config.loader import inspect_config, load_config
 from openswarm.core.orchestrator import Orchestrator
 from openswarm.core.team import Team
 from openswarm.core.usage import RunResult
 from openswarm.workflow import get_workflow
 
-# File names to look for in project directory (in priority order)
-LOCAL_CONFIG_NAMES = [
-    "team.yaml",
-    "team.yml",
-    "openswarm.yaml",
-    "openswarm.yml",
-    ".openswarm.yaml",
-    ".openswarm.yml",
+__all__ = [
+    "LOCAL_CONFIG_NAMES",
+    "find_local_configs",
+    "find_all_configs",
+    "find_team_configs",
+    "run_task",
+    "run_task_with_config",
+    "list_teams",
+    "team_info",
+    "create_mcp_server",
+    "main",
 ]
-
-
-def find_local_configs(project_dir: Path | None = None) -> dict[str, Path]:
-    """Find team configs in the project directory.
-
-    Looks for well-known filenames and openswarm/ subdirectory.
-    """
-    root = project_dir or Path.cwd()
-    configs: dict[str, Path] = {}
-
-    # Check well-known filenames
-    for name in LOCAL_CONFIG_NAMES:
-        path = root / name
-        if path.exists():
-            configs[path.stem] = path
-
-    # Check openswarm/ subdirectory
-    swarm_dir = root / "openswarm"
-    if swarm_dir.is_dir():
-        for p in sorted(swarm_dir.iterdir()):
-            if p.suffix in (".yaml", ".yml"):
-                configs[p.stem] = p
-
-    return configs
-
-
-def find_all_configs(project_dir: Path | None = None) -> dict[str, Path]:
-    """Find all team configs — local project configs first, then global."""
-    # Global configs
-    configs = find_team_configs()
-    # Local configs override global ones with same name
-    configs.update(find_local_configs(project_dir))
-    return configs
 
 
 def _format_usage(run_result: RunResult) -> str:
@@ -79,33 +58,30 @@ def _format_usage(run_result: RunResult) -> str:
     return "\n".join(lines)
 
 
-async def run_task(task: str, team_name: str | None = None) -> str:
-    """Run a task with a team. Auto-discovers config if no team specified."""
-    configs = find_all_configs()
-
-    if not team_name:
-        # Auto-select: if there's exactly one config, use it
-        if len(configs) == 1:
-            team_name = next(iter(configs))
-        elif len(configs) == 0:
-            return (
-                "Error: No team config found. "
-                "Add a team.yaml to your project or ~/.openswarm/teams/."
-            )
-        else:
-            available = ", ".join(configs)
-            return f"Error: Multiple teams found ({available}). Specify which team to use."
-
-    if team_name not in configs:
-        available = ", ".join(configs) if configs else "none"
-        return f"Error: Team '{team_name}' not found. Available: {available}"
-
-    team_config = load_config(configs[team_name])
+async def _run(team_config, task: str) -> str:
     team = Team(team_config)
     workflow = get_workflow(team_config.workflow.type)
     orchestrator = Orchestrator(team, workflow)
     run_result = await orchestrator.run(task)
     return _format_usage(run_result)
+
+
+async def run_task(task: str, team_name: str | None = None) -> str:
+    """Run a task with a team. Auto-discovers config if no team specified."""
+    try:
+        _, path = resolve_team(team_name, configs=find_all_configs())
+    except TeamResolutionError as e:
+        return f"Error: {e}"
+
+    try:
+        team_config = load_config(path)
+    except (FileNotFoundError, ValueError) as e:
+        return f"Error loading config: {e}"
+
+    try:
+        return await _run(team_config, task)
+    except Exception as e:
+        return f"Error: the team run failed: {e}"
 
 
 async def run_task_with_config(task: str, config_path: str) -> str:
@@ -119,11 +95,10 @@ async def run_task_with_config(task: str, config_path: str) -> str:
     except Exception as e:
         return f"Error loading config: {e}"
 
-    team = Team(team_config)
-    workflow = get_workflow(team_config.workflow.type)
-    orchestrator = Orchestrator(team, workflow)
-    run_result = await orchestrator.run(task)
-    return _format_usage(run_result)
+    try:
+        return await _run(team_config, task)
+    except Exception as e:
+        return f"Error: the team run failed: {e}"
 
 
 async def list_teams() -> str:
@@ -132,15 +107,18 @@ async def list_teams() -> str:
     if not configs:
         return (
             "No teams found. Add a team.yaml to your project "
-            f"or place configs in {get_config_dir() / 'teams'}."
+            f"or place configs in {get_teams_dir()}."
         )
 
     lines = []
     for name, path in configs.items():
         try:
-            tc = load_config(path)
-            source = "local" if path.parent != get_config_dir() / "teams" else "global"
-            lines.append(f"• {name} [{source}]: {tc.goal} ({len(tc.agents)} agents)")
+            tc, missing = inspect_config(path)
+            env_note = f" [unset env: {', '.join(missing)}]" if missing else ""
+            lines.append(
+                f"• {name} [{config_source(path)}]: {tc.goal} "
+                f"({len(tc.agents)} agents, {tc.workflow.type}){env_note}"
+            )
         except Exception as e:
             lines.append(f"• {name}: [error loading: {e}]")
     return "\n".join(lines)
@@ -153,7 +131,11 @@ async def team_info(team_name: str) -> str:
         available = ", ".join(configs) if configs else "none"
         return f"Error: Team '{team_name}' not found. Available: {available}"
 
-    tc = load_config(configs[team_name])
+    try:
+        tc, _ = inspect_config(configs[team_name])
+    except (FileNotFoundError, ValueError) as e:
+        return f"Error loading team '{team_name}': {e}"
+
     lines = [
         f"Team: {tc.name}",
         f"Goal: {tc.goal}",
@@ -186,7 +168,7 @@ def _build_instructions() -> str:
     team_summaries = []
     for name, path in configs.items():
         try:
-            tc = load_config(path)
+            tc, _ = inspect_config(path)
             agents_desc = ", ".join(f"{a.name} ({a.role})" for a in tc.agents)
             team_summaries.append(
                 f"- {tc.name}: {tc.goal} [{tc.workflow.type} workflow, agents: {agents_desc}]"
