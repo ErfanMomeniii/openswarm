@@ -149,6 +149,66 @@ def test_slash_stream_toggle(team_config: TeamConfig):
     assert stream_state[0] is False
 
 
+def test_slash_help(team_config: TeamConfig):
+    from openswarm.cli.interactive import _handle_slash_command
+
+    team = Team(team_config)
+    orch = Orchestrator(team, HierarchicalWorkflow())
+    assert _handle_slash_command("/help", team, orch, [False]) is False
+
+
+def test_slash_quit_aliases(team_config: TeamConfig):
+    from openswarm.cli.interactive import _handle_slash_command
+
+    team = Team(team_config)
+    orch = Orchestrator(team, HierarchicalWorkflow())
+    for cmd in ("/quit", "/exit", "/q"):
+        assert _handle_slash_command(cmd, team, orch, [False]) is True
+
+
+def test_slash_usage_empty_and_populated(team_config: TeamConfig):
+    from openswarm.cli.interactive import _handle_slash_command
+    from openswarm.core.usage import RunUsage, UsageStats
+
+    team = Team(team_config)
+    orch = Orchestrator(team, HierarchicalWorkflow())
+
+    assert _handle_slash_command("/usage", team, orch, [False], RunUsage()) is False
+
+    usage = RunUsage(entries=[UsageStats("lead", "gpt-test", 10, 5)])
+    assert _handle_slash_command("/usage", team, orch, [False], usage) is False
+
+
+def test_slash_save_writes_last_result(team_config: TeamConfig, tmp_path):
+    from openswarm.cli.interactive import _handle_slash_command
+
+    team = Team(team_config)
+    orch = Orchestrator(team, HierarchicalWorkflow())
+    out = tmp_path / "out.md"
+
+    _handle_slash_command(f"/save {out}", team, orch, [False], None, ["the result"])
+    assert out.read_text() == "the result"
+
+
+def test_slash_save_without_result(team_config: TeamConfig, tmp_path):
+    from openswarm.cli.interactive import _handle_slash_command
+
+    team = Team(team_config)
+    orch = Orchestrator(team, HierarchicalWorkflow())
+    out = tmp_path / "out.md"
+
+    _handle_slash_command(f"/save {out}", team, orch, [False], None, [""])
+    assert not out.exists()
+
+
+def test_slash_save_requires_path(team_config: TeamConfig):
+    from openswarm.cli.interactive import _handle_slash_command
+
+    team = Team(team_config)
+    orch = Orchestrator(team, HierarchicalWorkflow())
+    assert _handle_slash_command("/save", team, orch, [False], None, ["x"]) is False
+
+
 def test_slash_unknown(team_config: TeamConfig):
     from openswarm.cli.interactive import _handle_slash_command
 
