@@ -37,34 +37,30 @@ This installs everything: the `openswarm` CLI, the `openswarm-mcp` server, and a
 
 ## Get Started
 
-### 1. Add `team.yaml` to your project
+### 1. Scaffold a team
 
-Drop this in your project root — like a `CLAUDE.md`, but for your agent team:
-
-```yaml
-team:
-  name: "backend-team"
-  goal: "Build and maintain backend services"
-  workflow: hierarchical
-  lead: "senior"
-
-agents:
-  - name: "senior"
-    role: senior
-    model: claude-sonnet-4-20250514
-    host: https://api.anthropic.com
-    api_key: ${ANTHROPIC_API_KEY}
-    max_tokens: 4096
-    rules: ["Break down tasks", "Review output before approving"]
-
-  - name: "junior"
-    role: junior
-    model: deepseek-chat
-    host: https://api.deepseek.com/v1
-    api_key: ${DEEPSEEK_API_KEY}
-    max_tokens: 2048
-    rules: ["Execute assigned tasks", "Write tests for all code"]
+```bash
+cd your-project
+openswarm init            # writes team.yaml — pick a layout when prompted
+openswarm doctor          # verifies config + API keys before you spend anything
 ```
+
+`openswarm init` templates:
+
+| Template | Layout |
+|----------|--------|
+| `hierarchical` | Senior lead delegates to a cheap junior, then reviews (default) |
+| `pipeline` | writer → editor → reviewer, each transforms the previous output |
+| `collaborative` | Agents discuss in rounds until consensus, moderator synthesizes |
+| `local` | Two Ollama models — no API keys needed |
+
+```bash
+openswarm init --list-templates          # see them all
+openswarm init -T local                  # non-interactive
+openswarm init --global --name backend   # install to ~/.openswarm/teams/ for all projects
+```
+
+The generated `team.yaml` sits in your project root — like a `CLAUDE.md`, but for your agent team. Edit models and rules to taste.
 
 ### 2. Register with your IDE (one-time)
 
@@ -186,26 +182,42 @@ Config discovery: `team.yaml` / `openswarm.yaml` in project root, `openswarm/*.y
 ## CLI Usage
 
 ```bash
-# Run with config file
-openswarm run "Build a REST API" --config team.yaml
+# Uses the project's team.yaml automatically — no flags needed
+openswarm run "Build a REST API"
 
-# Run with named team (from ~/.openswarm/teams/<name>.yaml)
+# Explicit config file, or a named team (project-local or global)
+openswarm run "Build a REST API" --config team.yaml
 openswarm run "Fix the login bug" --team backend
 
-# Verbose — see inter-agent messages in real-time
-openswarm run "Refactor auth module" --config team.yaml -v
+# Scaffold and check
+openswarm init                  # create team.yaml
+openswarm doctor                # validate configs, env vars, providers
+openswarm doctor --check-connection   # also ping each agent's endpoint (1 token each)
 
-# Stream agent output token-by-token as it's generated
-openswarm run "Build a REST API" --config team.yaml --stream
-
-# List all configured teams
-openswarm team-list
-
-# Show team details
-openswarm team-info backend
+# Inspect
+openswarm team list             # all teams, local and global
+openswarm team info backend     # agents, models, rules
 
 # Run as Python module
-python -m openswarm run "Do the thing" --config team.yaml
+python -m openswarm run "Do the thing"
+```
+
+### `run` flags
+
+| Flag | Purpose |
+|------|---------|
+| `-c, --config PATH` | Use a specific config file |
+| `-t, --team NAME` | Use a named team (project-local or `~/.openswarm/teams/`) |
+| `-v, --verbose` | Show inter-agent messages as they happen |
+| `-s, --stream` | Stream agent output token-by-token |
+| `-q, --quiet` | Print only the result — for pipes and redirects |
+| `-o, --output PATH` | Write the result to a file |
+| `--max-rounds N` | Override the team's `max_rounds` for this run |
+
+With no `-c`/`-t`, OpenSwarm uses the single discoverable team config. If several exist, it lists them and asks you to pick — it never guesses.
+
+```bash
+openswarm run "Summarize the auth flow" -q > auth-notes.md
 ```
 
 ### Interactive Mode (experimental)
@@ -213,11 +225,32 @@ python -m openswarm run "Do the thing" --config team.yaml
 Chat with your team in a persistent session. We're actively improving this.
 
 ```bash
-openswarm interactive --team backend
-openswarm interactive --team backend -v  # with real-time message display
+openswarm interactive              # auto-discovers team.yaml
+openswarm interactive -t backend -v
 ```
 
-Slash commands: `/quit`, `/team`, `/history`, `/clear`, `/stream` (toggle streaming). Ctrl+C cancels current task without exiting.
+| Command | Does |
+|---------|------|
+| `/help` | List commands |
+| `/team` | Show the current team |
+| `/history` | Show message history |
+| `/usage` | Token usage and cost for the whole session |
+| `/save FILE` | Write the last result to a file |
+| `/clear` | Clear history (messages and agent memory) |
+| `/stream` | Toggle streaming |
+| `/quit` | Exit (`/exit`, `/q` also work) |
+
+Ctrl+C cancels the current task without exiting.
+
+### Config discovery
+
+`openswarm` and the MCP server look in the same places, in this order:
+
+1. `team.yaml` / `team.yml` / `openswarm.yaml` / `.openswarm.yaml` in the current directory
+2. `openswarm/*.yaml` in the current directory
+3. `~/.openswarm/teams/*.yaml` (or `$OPENSWARM_CONFIG_DIR/teams/`)
+
+Project-local configs win over global ones with the same name.
 
 ## Team Config
 
@@ -266,6 +299,15 @@ agents:
 | `temperature` | no | `0.7` | Sampling temperature (0.0–2.0) |
 | `max_history` | no | `40` | Max messages kept in agent history (≥ 1) |
 | `rules` | no | `[]` | Agent behavior rules |
+
+Any string value supports `${VAR}` and `${VAR:-fallback}`:
+
+```yaml
+host: ${OLLAMA_HOST:-http://localhost:11434}
+api_key: ${DEEPSEEK_API_KEY}
+```
+
+`${VAR}` with nothing set is an error with the exact `export` line you need. `${VAR:-fallback}` never fails.
 
 **What models can I use?** Any model with an OpenAI-compatible API — Claude, GPT, DeepSeek, Mistral, Llama, local models via Ollama. If [litellm](https://docs.litellm.ai/docs/providers) supports it, OpenSwarm supports it.
 
@@ -328,10 +370,13 @@ Requires at least 2 agents. No `lead` field needed.
 
 ## Error Handling
 
-- LLM calls retry once on transient errors (rate limits, timeouts, connection issues)
+- LLM calls retry twice on transient errors (rate limits, timeouts, connection issues)
 - Permanent errors (bad API key, invalid model) fail immediately with a clear message
 - `openswarm run` shows clean error output instead of tracebacks
-- Config validation catches problems at load time (missing lead agent, invalid temperature/token values)
+- Config validation catches problems at load time: missing `lead`, unknown workflow type, duplicate agent names, invalid temperature/token values, malformed YAML — each naming the field and file
+- Unset `${ENV_VAR}` references are reported together, with the `export` lines to fix them
+- If a hierarchical run hits `max_rounds` without the lead finishing, the last real agent output is returned rather than discarded
+- `openswarm doctor` catches all of the above before you spend a token
 
 ## Cost Comparison
 
