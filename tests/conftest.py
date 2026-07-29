@@ -74,6 +74,16 @@ def sample_yaml_with_env(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def isolated(tmp_path: Path, monkeypatch) -> Path:
+    """Empty project dir + empty global config dir, so nothing is discoverable."""
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("OPENSWARM_CONFIG_DIR", str(tmp_path / "home"))
+    monkeypatch.chdir(project)
+    return project
+
+
+@pytest.fixture
 def team_config() -> TeamConfig:
     return TeamConfig(
         name="test-team",
