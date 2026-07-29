@@ -17,6 +17,10 @@ from openswarm.core.usage import UsageStats
 litellm.use_aiohttp_transport = False
 litellm.disable_aiohttp_transport = True
 
+# litellm prints a "Give Feedback / Get Help" banner on every provider error.
+# Users get our own error message instead.
+litellm.suppress_debug_info = True
+
 litellm.aclient_session = httpx.AsyncClient(trust_env=False, follow_redirects=True)
 
 logger = logging.getLogger(__name__)
