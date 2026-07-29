@@ -1,3 +1,4 @@
+from openswarm.config.models import WORKFLOW_TYPES
 from openswarm.workflow.base import Workflow
 from openswarm.workflow.collaborative import CollaborativeWorkflow
 from openswarm.workflow.hierarchical import HierarchicalWorkflow
@@ -8,19 +9,24 @@ __all__ = [
     "CollaborativeWorkflow",
     "HierarchicalWorkflow",
     "PipelineWorkflow",
+    "WORKFLOWS",
     "get_workflow",
 ]
+
+WORKFLOWS: dict[str, type[Workflow]] = {
+    "hierarchical": HierarchicalWorkflow,
+    "pipeline": PipelineWorkflow,
+    "collaborative": CollaborativeWorkflow,
+}
+
+# Config validation and the factory must agree on what's supported.
+assert set(WORKFLOWS) == set(WORKFLOW_TYPES), "WORKFLOWS drifted from config.WORKFLOW_TYPES"
 
 
 def get_workflow(workflow_type: str) -> Workflow:
     """Factory: return a Workflow instance for the given type string."""
-    workflows = {
-        "hierarchical": HierarchicalWorkflow,
-        "pipeline": PipelineWorkflow,
-        "collaborative": CollaborativeWorkflow,
-    }
-    if workflow_type not in workflows:
+    if workflow_type not in WORKFLOWS:
         raise ValueError(
-            f"Unknown workflow type '{workflow_type}'. Available: {', '.join(workflows)}"
+            f"Unknown workflow type '{workflow_type}'. Available: {', '.join(WORKFLOWS)}"
         )
-    return workflows[workflow_type]()
+    return WORKFLOWS[workflow_type]()

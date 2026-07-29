@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from openswarm.config.loader import load_config
+from openswarm.config.loader import ConfigError, inspect_config, load_config
 from openswarm.config.models import AgentConfig, TeamConfig, WorkflowConfig
+
+from conftest import SAMPLE_YAML
 
 
 def test_load_valid_yaml(sample_yaml_file: Path):
@@ -141,6 +143,112 @@ def test_collaborative_requires_min_agents():
                 AgentConfig(name="alice", role="dev", model="m", host="h", api_key="k"),
             ],
         )
+
+
+# --- Env var handling ---
+
+
+def test_env_var_default_used_when_unset(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("SOME_HOST", raising=False)
+    p = tmp_path / "t.yaml"
+    p.write_text(SAMPLE_YAML.replace("https://api.test.com", "${SOME_HOST:-http://localhost:1234}"))
+    config = load_config(p)
+    assert config.agents[0].host == "http://localhost:1234"
+
+
+def test_env_var_default_overridden_when_set(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SOME_HOST", "https://real.host")
+    p = tmp_path / "t.yaml"
+    p.write_text(SAMPLE_YAML.replace("https://api.test.com", "${SOME_HOST:-http://localhost:1234}"))
+    assert load_config(p).agents[0].host == "https://real.host"
+
+
+def test_empty_env_var_treated_as_unset(sample_yaml_with_env: Path, monkeypatch):
+    monkeypatch.setenv("TEST_API_KEY", "")
+    with pytest.raises(ConfigError, match="TEST_API_KEY"):
+        load_config(sample_yaml_with_env)
+
+
+def test_missing_env_var_message_shows_export_hint(sample_yaml_with_env: Path, monkeypatch):
+    monkeypatch.delenv("TEST_API_KEY", raising=False)
+    with pytest.raises(ConfigError, match="export TEST_API_KEY"):
+        load_config(sample_yaml_with_env)
+
+
+def test_inspect_config_reports_missing_without_raising(sample_yaml_with_env: Path, monkeypatch):
+    monkeypatch.delenv("TEST_API_KEY", raising=False)
+    config, missing = inspect_config(sample_yaml_with_env)
+    assert missing == ["TEST_API_KEY"]
+    assert config.agents[0].api_key == "<unset:TEST_API_KEY>"
+
+
+# --- Malformed config diagnostics ---
+
+
+def test_invalid_yaml(tmp_path: Path):
+    p = tmp_path / "bad.yaml"
+    p.write_text("team: [unclosed\n")
+    with pytest.raises(ConfigError, match="Invalid YAML"):
+        load_config(p)
+
+
+def test_empty_file(tmp_path: Path):
+    p = tmp_path / "empty.yaml"
+    p.write_text("")
+    with pytest.raises(ConfigError, match="empty"):
+        load_config(p)
+
+
+def test_missing_team_section(tmp_path: Path):
+    p = tmp_path / "t.yaml"
+    p.write_text("agents: []\n")
+    with pytest.raises(ConfigError, match="'team:'"):
+        load_config(p)
+
+
+def test_missing_agents_section(tmp_path: Path):
+    p = tmp_path / "t.yaml"
+    p.write_text("team:\n  name: x\n  goal: y\n")
+    with pytest.raises(ConfigError, match="'agents:'"):
+        load_config(p)
+
+
+def test_agent_field_error_names_the_field(tmp_path: Path):
+    p = tmp_path / "t.yaml"
+    p.write_text(SAMPLE_YAML.replace("max_tokens: 100", "max_tokens: 0"))
+    with pytest.raises(ConfigError, match="max_tokens"):
+        load_config(p)
+
+
+# --- Extra validation ---
+
+
+def test_unknown_workflow_type_rejected():
+    with pytest.raises(ValidationError, match="unknown workflow"):
+        WorkflowConfig(type="magic")
+
+
+def test_max_rounds_must_be_positive():
+    with pytest.raises(ValidationError, match="max_rounds must be >= 1"):
+        WorkflowConfig(type="pipeline", max_rounds=0)
+
+
+def test_duplicate_agent_names_rejected():
+    with pytest.raises(ValidationError, match="Duplicate agent name"):
+        TeamConfig(
+            name="dup",
+            goal="test",
+            workflow=WorkflowConfig(type="pipeline"),
+            agents=[
+                AgentConfig(name="a", role="dev", model="m", host="h", api_key="k"),
+                AgentConfig(name="a", role="dev", model="m", host="h", api_key="k"),
+            ],
+        )
+
+
+def test_blank_agent_field_rejected():
+    with pytest.raises(ValidationError, match="must not be empty"):
+        AgentConfig(name="  ", role="dev", model="m", host="h", api_key="k")
 
 
 def test_collaborative_no_lead_required():

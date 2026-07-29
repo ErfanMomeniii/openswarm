@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+#: Workflow types accepted in config. Kept here (not in openswarm.workflow) so
+#: config validation stays import-cycle free; the workflow factory validates
+#: against the same tuple.
+WORKFLOW_TYPES = ("hierarchical", "pipeline", "collaborative")
+
 
 class AgentConfig(BaseModel):
     """Configuration for a single agent."""
@@ -17,6 +22,13 @@ class AgentConfig(BaseModel):
     temperature: float = 0.7
     max_history: int = 40
     rules: list[str] = Field(default_factory=list)
+
+    @field_validator("name", "role", "model", "host", "api_key")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty")
+        return v.strip()
 
     @field_validator("max_history")
     @classmethod
@@ -47,6 +59,20 @@ class WorkflowConfig(BaseModel):
     lead: str | None = None
     max_rounds: int = 10
 
+    @field_validator("type")
+    @classmethod
+    def known_type(cls, v: str) -> str:
+        if v not in WORKFLOW_TYPES:
+            raise ValueError(f"unknown workflow '{v}'. Available: {', '.join(WORKFLOW_TYPES)}")
+        return v
+
+    @field_validator("max_rounds")
+    @classmethod
+    def max_rounds_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("max_rounds must be >= 1")
+        return v
+
 
 class TeamConfig(BaseModel):
     """Top-level team configuration loaded from YAML."""
@@ -55,6 +81,21 @@ class TeamConfig(BaseModel):
     goal: str
     workflow: WorkflowConfig
     agents: list[AgentConfig]
+
+    @model_validator(mode="after")
+    def validate_agents_present(self) -> TeamConfig:
+        if not self.agents:
+            raise ValueError("Team requires at least one agent")
+        return self
+
+    @model_validator(mode="after")
+    def validate_unique_agent_names(self) -> TeamConfig:
+        seen: set[str] = set()
+        for agent in self.agents:
+            if agent.name in seen:
+                raise ValueError(f"Duplicate agent name '{agent.name}' — names must be unique")
+            seen.add(agent.name)
+        return self
 
     @model_validator(mode="after")
     def validate_lead_exists(self) -> TeamConfig:
