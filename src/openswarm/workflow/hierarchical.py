@@ -109,6 +109,10 @@ class HierarchicalWorkflow(Workflow):
 
         current_msg = initial_msg
         target_agent = lead
+        # Best partial output seen so far — salvaged if we run out of rounds.
+        # Worker deliverables are preferred over lead chatter/delegation text.
+        last_work: tuple[str, str] | None = None
+        last_any: tuple[str, str] | None = None
 
         for round_num in range(max_rounds):
             logger.info(f"Round {round_num + 1}/{max_rounds}")
@@ -149,6 +153,12 @@ class HierarchicalWorkflow(Workflow):
                 continue
 
             action = parsed.get("action", "")
+
+            candidate = parsed.get("content") or parsed.get("task") or ""
+            if isinstance(candidate, str) and candidate.strip():
+                last_any = (target_agent.name, candidate)
+                if action in ("result", "answer", "revision"):
+                    last_work = (target_agent.name, candidate)
 
             if action == "respond":
                 # Lead is done — return final answer
@@ -254,6 +264,14 @@ class HierarchicalWorkflow(Workflow):
                 current_msg = fallback_msg
                 target_agent = lead
 
-        # Max rounds hit
-        task.complete("Max rounds reached without resolution.")
-        return "Max rounds reached without resolution."
+        # Max rounds hit — never throw away the work already paid for.
+        logger.warning(f"Max rounds ({max_rounds}) reached without the lead marking the task done")
+        final = f"Max rounds ({max_rounds}) reached — the lead never marked the task done."
+        salvaged = last_work or last_any
+        if salvaged:
+            agent_name, content = salvaged
+            final += f"\n\nLast output from '{agent_name}':\n\n{content}"
+        else:
+            final += " No usable output was produced."
+        task.complete(final)
+        return final

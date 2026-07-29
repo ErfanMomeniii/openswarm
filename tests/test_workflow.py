@@ -142,6 +142,25 @@ async def test_workflow_max_rounds(team_config: TeamConfig):
         result = await workflow.execute(task, team, max_rounds=3, message_log=message_log)
 
     assert "Max rounds" in result
+    # Work already paid for is salvaged instead of discarded.
+    assert "partial" in result
+    assert task.result == result
+
+
+@pytest.mark.asyncio
+async def test_workflow_max_rounds_without_any_output(team_config: TeamConfig):
+    """No usable content anywhere — say so instead of pretending."""
+    team = Team(team_config)
+    workflow = HierarchicalWorkflow()
+    task = Task(description="Loop forever")
+
+    responses = [make_llm_response({"action": "noop"}) for _ in range(4)]
+    mock = mock_acompletion(*responses)
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await workflow.execute(task, team, max_rounds=2, message_log=[])
+
+    assert "Max rounds" in result
+    assert "No usable output" in result
 
 
 @pytest.mark.asyncio
