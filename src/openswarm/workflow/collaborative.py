@@ -8,7 +8,12 @@ from openswarm.core.agent import COLLABORATIVE_PROTOCOL
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
-from openswarm.workflow.base import MessageCallback, ProgressCallback, Workflow
+from openswarm.workflow.base import (
+    MessageCallback,
+    ProgressCallback,
+    Workflow,
+    make_chunk_callback,
+)
 from openswarm.workflow.hierarchical import _parse_agent_response
 
 logger = logging.getLogger(__name__)
@@ -56,13 +61,10 @@ class CollaborativeWorkflow(Workflow):
                 _log(input_msg)
 
                 if on_progress is not None:
-                    _name = agent_name
-
-                    def chunk_cb(chunk: str) -> None:
-                        on_progress(_name, chunk)
-
                     raw = await agent.respond_stream(
-                        input_msg, protocol_override=COLLABORATIVE_PROTOCOL, on_chunk=chunk_cb
+                        input_msg,
+                        protocol_override=COLLABORATIVE_PROTOCOL,
+                        on_chunk=make_chunk_callback(on_progress, agent_name),
                     )
                 else:
                     raw = await agent.respond(input_msg, protocol_override=COLLABORATIVE_PROTOCOL)
@@ -110,13 +112,10 @@ class CollaborativeWorkflow(Workflow):
         _log(synthesis_msg)
 
         if on_progress is not None:
-            _mod_name = moderator_name
-
-            def mod_chunk_cb(chunk: str) -> None:
-                on_progress(_mod_name, chunk)
-
             raw = await moderator.respond_stream(
-                synthesis_msg, protocol_override=COLLABORATIVE_PROTOCOL, on_chunk=mod_chunk_cb
+                synthesis_msg,
+                protocol_override=COLLABORATIVE_PROTOCOL,
+                on_chunk=make_chunk_callback(on_progress, moderator_name),
             )
         else:
             raw = await moderator.respond(synthesis_msg, protocol_override=COLLABORATIVE_PROTOCOL)

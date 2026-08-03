@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+from conftest import mock_acompletion
 
 from openswarm.config.models import AgentConfig, TeamConfig, WorkflowConfig
 from openswarm.core.message import Message, MessageType
@@ -12,8 +13,6 @@ from openswarm.core.task import Task
 from openswarm.core.team import Team
 from openswarm.workflow import get_workflow
 from openswarm.workflow.pipeline import PipelineWorkflow
-
-from conftest import mock_acompletion
 
 
 @pytest.fixture
@@ -88,6 +87,60 @@ async def test_three_agent_pipeline():
     assert result == "step3"
     assert mock.call_count == 3
     assert len(message_log) == 6  # 2 messages per agent
+
+
+@pytest.mark.asyncio
+async def test_pipeline_unwraps_json_protocol(pipeline_config: TeamConfig):
+    """Agents answer in the JSON protocol — users must not see the envelope."""
+    from conftest import make_llm_response
+
+    team = Team(pipeline_config)
+    workflow = PipelineWorkflow()
+    task = Task(description="Write a story")
+    message_log: list[Message] = []
+
+    mock = mock_acompletion(
+        make_llm_response({"action": "result", "content": "draft story"}),
+        make_llm_response({"action": "result", "content": "polished story"}),
+    )
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await workflow.execute(task, team, max_rounds=5, message_log=message_log)
+
+    assert result == "polished story"
+    # The second agent receives the first agent's content, not its JSON envelope.
+    second_input = message_log[2]
+    assert second_input.content == "draft story"
+    assert "action" not in second_input.content
+
+
+@pytest.mark.asyncio
+async def test_pipeline_passes_through_non_json_replies(pipeline_config: TeamConfig):
+    """Models that ignore the protocol still work — raw prose flows through."""
+    team = Team(pipeline_config)
+    workflow = PipelineWorkflow()
+    task = Task(description="Write a story")
+
+    mock = mock_acompletion("plain draft", "plain final")
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await workflow.execute(task, team, max_rounds=5, message_log=[])
+
+    assert result == "plain final"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_json_without_content_falls_back(pipeline_config: TeamConfig):
+    from conftest import make_llm_response
+
+    team = Team(pipeline_config)
+    workflow = PipelineWorkflow()
+    task = Task(description="Write a story")
+
+    envelope = make_llm_response({"action": "result"})
+    mock = mock_acompletion(envelope, envelope)
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await workflow.execute(task, team, max_rounds=5, message_log=[])
+
+    assert result == envelope
 
 
 @pytest.mark.asyncio

@@ -2,14 +2,42 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
-from openswarm.workflow.base import MessageCallback, ProgressCallback, Workflow
+from openswarm.workflow.base import (
+    MessageCallback,
+    ProgressCallback,
+    Workflow,
+    make_chunk_callback,
+)
+from openswarm.workflow.parsing import parse_agent_response
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_content(raw: str, agent_name: str) -> str:
+    """Pull the payload out of an agent's JSON envelope.
+
+    Agents answer with the JSON protocol, so passing the raw envelope down the
+    chain would feed the next agent (and the user) `{"action": ...}` noise.
+    Models that ignore the protocol and reply in prose are passed through as-is.
+    """
+    try:
+        parsed = parse_agent_response(raw)
+    except (json.JSONDecodeError, KeyError):
+        logger.debug(f"Agent '{agent_name}' replied outside the JSON protocol; using raw text")
+        return raw
+
+    content = parsed.get("content")
+    if isinstance(content, str) and content.strip():
+        return content
+
+    logger.warning(f"Agent '{agent_name}' returned JSON without usable content; using raw text")
+    return raw
 
 
 class PipelineWorkflow(Workflow):
@@ -50,14 +78,13 @@ class PipelineWorkflow(Workflow):
 
             logger.info(f"Pipeline step {i + 1}/{len(agent_names)}: {agent_name}")
             if on_progress is not None:
-                _name = agent_name
-
-                def chunk_cb(chunk: str) -> None:
-                    on_progress(_name, chunk)
-
-                response_text = await agent.respond_stream(input_msg, on_chunk=chunk_cb)
+                raw_response = await agent.respond_stream(
+                    input_msg, on_chunk=make_chunk_callback(on_progress, agent_name)
+                )
             else:
-                response_text = await agent.respond(input_msg)
+                raw_response = await agent.respond(input_msg)
+
+            response_text = _extract_content(raw_response, agent_name)
 
             result_msg = Message(
                 from_agent=agent_name,
