@@ -47,6 +47,8 @@ team_app = typer.Typer(help="Inspect configured teams.", no_args_is_help=True)
 app.add_typer(team_app, name="team")
 
 console = Console()
+# Errors go to stderr so `openswarm run ... -q > out.md` never captures them.
+err_console = Console(stderr=True)
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -65,8 +67,8 @@ def _setup_logging(verbose: bool) -> None:
 
 
 def _fail(message: str) -> None:
-    """Print an error and exit with status 1."""
-    console.print(f"[red]{message}[/red]")
+    """Print an error to stderr and exit with status 1."""
+    err_console.print(f"[red]{message}[/red]")
     raise typer.Exit(1)
 
 
@@ -188,7 +190,7 @@ def run(
     except LLMError as e:
         _fail(f"LLM error: {e}")
     except KeyboardInterrupt:
-        console.print("\n[yellow]Cancelled.[/yellow]")
+        err_console.print("\n[yellow]Cancelled.[/yellow]")
         raise typer.Exit(130)
 
     if output is not None:

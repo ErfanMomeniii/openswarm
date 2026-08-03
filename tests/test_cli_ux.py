@@ -106,6 +106,16 @@ def test_run_writes_output_file(isolated: Path):
     assert out.read_text() == "saved result"
 
 
+def test_run_errors_go_to_stderr_not_stdout(isolated: Path):
+    """`openswarm run -q > out.md` must never capture an error message."""
+    split_runner = CliRunner(mix_stderr=False)
+    result = split_runner.invoke(app, ["run", "Do something", "-q"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "openswarm init" in result.stderr
+
+
 def test_run_max_rounds_override_validated(isolated: Path):
     (isolated / "team.yaml").write_text(SAMPLE_YAML)
     result = runner.invoke(app, ["run", "x", "--max-rounds", "0"])
@@ -216,6 +226,19 @@ def test_doctor_connection_check_success(isolated: Path):
         result = runner.invoke(app, ["doctor", "--check-connection"])
     assert result.exit_code == 0
     assert "reachable" in result.output
+
+
+def test_doctor_connection_check_skipped_when_env_unset(isolated: Path, monkeypatch):
+    """Never send a placeholder API key to a provider."""
+    monkeypatch.delenv("MISSING_KEY", raising=False)
+    (isolated / "team.yaml").write_text(SAMPLE_YAML.replace("test-key", "${MISSING_KEY}"))
+
+    with patch("openswarm.cli.app.LLMClient.chat") as chat:
+        result = runner.invoke(app, ["doctor", "--check-connection"])
+
+    assert result.exit_code == 1
+    assert "skipping connection check" in result.output
+    chat.assert_not_called()
 
 
 def test_doctor_connection_check_failure(isolated: Path):
