@@ -5,11 +5,39 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "openswarm-ai"
 version = "1.2.0"
-description = "Multi-agent orchestration framework"
+description = "Define AI agent teams in YAML — cheap models do bulk work, expensive models make decisions"
 authors = [{ name = "Erfan Momeni", email = "erfamm5@gmail.com" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.12"
+keywords = [
+    "ai",
+    "llm",
+    "agents",
+    "multi-agent",
+    "orchestration",
+    "mcp",
+    "claude",
+    "openai",
+    "deepseek",
+    "ollama",
+    "litellm",
+    "cost-optimization",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
 dependencies = [
     "litellm>=1.40.0",
     "typer>=0.12.0",
@@ -26,8 +54,14 @@ mcp = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
-    "ruff>=0.4",
+    "ruff>=0.16,<0.17",  # pinned: ruff changes its default rules between minors
 ]
+
+[project.urls]
+Homepage = "https://github.com/ErfanMomeniii/openswarm"
+Repository = "https://github.com/ErfanMomeniii/openswarm"
+Issues = "https://github.com/ErfanMomeniii/openswarm/issues"
+Changelog = "https://github.com/ErfanMomeniii/openswarm/blob/master/CHANGELOG.md"
 
 [project.scripts]
 openswarm = "openswarm.cli.app:app"
@@ -39,6 +73,27 @@ where = ["src"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+
+# Rule selection is explicit: ruff's defaults change between releases, and an
+# unpinned linter that picks its own rules breaks CI on someone else's schedule.
+[tool.ruff.lint]
+select = [
+    "E4",  # imports
+    "E7",  # statement style
+    "E9",  # runtime errors
+    "F",   # pyflakes
+    "I",   # import sorting
+    "UP",  # pyupgrade
+    "B",   # bugbear
+    "SIM", # simplify
+    "RUF", # ruff-specific
+]
+ignore = [
+    "B008", # Typer declares CLI options as function-call defaults by design
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B017"]  # pytest.raises(Exception) is intentional in a few tests
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
