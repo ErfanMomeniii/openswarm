@@ -4,7 +4,7 @@ from __future__ import annotations
 
 HIERARCHICAL = """\
 # OpenSwarm team — a smart lead delegates bulk work to a cheap worker.
-# Docs: https://github.com/erfamm/openswarm
+# Docs: https://github.com/ErfanMomeniii/openswarm
 team:
   name: "{name}"
   goal: "Build and maintain this project"
@@ -41,7 +41,7 @@ agents:
 
 PIPELINE = """\
 # OpenSwarm team — output flows through each agent in order.
-# Docs: https://github.com/erfamm/openswarm
+# Docs: https://github.com/ErfanMomeniii/openswarm
 team:
   name: "{name}"
   goal: "Draft, edit, and polish written output"
@@ -81,7 +81,7 @@ agents:
 
 COLLABORATIVE = """\
 # OpenSwarm team — all agents discuss, first agent moderates and synthesizes.
-# Docs: https://github.com/erfamm/openswarm
+# Docs: https://github.com/ErfanMomeniii/openswarm
 team:
   name: "{name}"
   goal: "Review proposals and reach a decision"

@@ -1,8 +1,9 @@
 # OpenSwarm
 
 [![PyPI version](https://img.shields.io/pypi/v/openswarm-ai?label=pypi)](https://pypi.org/project/openswarm-ai/)
+[![CI](https://github.com/ErfanMomeniii/openswarm/actions/workflows/ci.yml/badge.svg)](https://github.com/ErfanMomeniii/openswarm/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://pypi.org/project/openswarm-ai/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/erfamm/openswarm/blob/master/LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/ErfanMomeniii/openswarm/blob/master/LICENSE)
 
 **Cut your AI coding costs by ~70%.** Define agent teams in YAML — cheap models do bulk work, expensive models make decisions. Works inside Claude Code, Cursor, Copilot, and any MCP-compatible IDE.
 
