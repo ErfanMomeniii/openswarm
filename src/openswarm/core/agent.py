@@ -138,7 +138,7 @@ class Agent:
         self.history.append({"role": "user", "content": user_content})
         self._trim_history()
 
-        messages = [{"role": "system", "content": system_prompt}] + self.history
+        messages = [{"role": "system", "content": system_prompt}, *self.history]
 
         logger.debug(f"Agent '{self.name}' calling LLM with {len(messages)} messages")
         llm_result = await self.llm.chat(messages)
@@ -169,7 +169,7 @@ class Agent:
         self.history.append({"role": "user", "content": user_content})
         self._trim_history()
 
-        messages = [{"role": "system", "content": system_prompt}] + self.history
+        messages = [{"role": "system", "content": system_prompt}, *self.history]
 
         logger.debug(f"Agent '{self.name}' calling LLM (streaming) with {len(messages)} messages")
         llm_result = await self.llm.chat_stream(messages, on_token=on_chunk)

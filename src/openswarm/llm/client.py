@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -62,10 +63,9 @@ def _extract_usage(response, model: str, elapsed: float) -> UsageStats | None:
     completion_tokens = getattr(usage, "completion_tokens", 0) or 0
 
     cost: float | None = None
-    try:
+    # Providers that report no pricing simply leave cost unset.
+    with contextlib.suppress(Exception):
         cost = litellm.completion_cost(completion_response=response)
-    except Exception:
-        pass
 
     return UsageStats(
         agent_name="",  # filled by Agent
