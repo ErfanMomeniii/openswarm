@@ -5,12 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import SAMPLE_YAML
 from pydantic import ValidationError
 
 from openswarm.config.loader import ConfigError, inspect_config, load_config
 from openswarm.config.models import AgentConfig, TeamConfig, WorkflowConfig
-
-from conftest import SAMPLE_YAML
 
 
 def test_load_valid_yaml(sample_yaml_file: Path):

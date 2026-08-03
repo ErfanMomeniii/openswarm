@@ -12,7 +12,6 @@ import pytest
 from openswarm.config.models import AgentConfig, TeamConfig, WorkflowConfig
 from openswarm.core.team import Team
 
-
 SAMPLE_YAML = textwrap.dedent("""\
     team:
       name: "test-team"

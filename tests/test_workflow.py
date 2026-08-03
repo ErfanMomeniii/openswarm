@@ -6,6 +6,7 @@ import json
 from unittest.mock import patch
 
 import pytest
+from conftest import make_llm_response, mock_acompletion, mock_acompletion_stream
 
 from openswarm.config.models import TeamConfig
 from openswarm.core.message import Message, MessageType
@@ -14,9 +15,6 @@ from openswarm.core.team import Team
 from openswarm.workflow import get_workflow
 from openswarm.workflow.collaborative import CollaborativeWorkflow
 from openswarm.workflow.hierarchical import HierarchicalWorkflow, _parse_agent_response
-
-from conftest import mock_acompletion, mock_acompletion_stream, make_llm_response
-
 
 # --- _parse_agent_response ---
 

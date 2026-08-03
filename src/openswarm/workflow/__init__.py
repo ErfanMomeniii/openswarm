@@ -5,11 +5,11 @@ from openswarm.workflow.hierarchical import HierarchicalWorkflow
 from openswarm.workflow.pipeline import PipelineWorkflow
 
 __all__ = [
-    "Workflow",
+    "WORKFLOWS",
     "CollaborativeWorkflow",
     "HierarchicalWorkflow",
     "PipelineWorkflow",
-    "WORKFLOWS",
+    "Workflow",
     "get_workflow",
 ]
 

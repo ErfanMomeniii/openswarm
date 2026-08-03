@@ -5,14 +5,13 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+from conftest import make_llm_response, mock_acompletion
 
 from openswarm.config.models import AgentConfig, TeamConfig, WorkflowConfig
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
 from openswarm.workflow.collaborative import CollaborativeWorkflow
-
-from conftest import make_llm_response, mock_acompletion
 
 
 @pytest.fixture

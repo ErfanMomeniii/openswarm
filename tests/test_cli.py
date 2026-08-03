@@ -5,11 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+from conftest import SAMPLE_YAML, make_llm_response, mock_acompletion, mock_acompletion_stream
 from typer.testing import CliRunner
 
 from openswarm.cli.app import app
-
-from conftest import SAMPLE_YAML, mock_acompletion, mock_acompletion_stream, make_llm_response
 
 runner = CliRunner()
 

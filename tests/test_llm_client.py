@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 import litellm
+import pytest
+from conftest import mock_acompletion_stream
 
 from openswarm.config.models import AgentConfig
 from openswarm.llm.client import LLMClient, LLMError, LLMResult
-
-from conftest import mock_acompletion_stream
 
 
 @pytest.fixture
@@ -67,9 +65,11 @@ async def test_retry_on_transient_error(client: LLMClient):
             _make_response("recovered"),
         ]
     )
-    with patch("openswarm.llm.client.litellm.acompletion", mock):
-        with patch("openswarm.llm.client.asyncio.sleep", new_callable=AsyncMock):
-            result = await client.chat([{"role": "user", "content": "hi"}])
+    with (
+        patch("openswarm.llm.client.litellm.acompletion", mock),
+        patch("openswarm.llm.client.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        result = await client.chat([{"role": "user", "content": "hi"}])
     assert result.content == "recovered"
     assert mock.call_count == 2
 
@@ -77,9 +77,11 @@ async def test_retry_on_transient_error(client: LLMClient):
 @pytest.mark.asyncio
 async def test_raise_llm_error_on_permanent_failure(client: LLMClient):
     mock = AsyncMock(side_effect=litellm.AuthenticationError("bad key", "model", "provider", None))
-    with patch("openswarm.llm.client.litellm.acompletion", mock):
-        with pytest.raises(LLMError, match="bad key"):
-            await client.chat([{"role": "user", "content": "hi"}])
+    with (
+        patch("openswarm.llm.client.litellm.acompletion", mock),
+        pytest.raises(LLMError, match="bad key"),
+    ):
+        await client.chat([{"role": "user", "content": "hi"}])
     assert mock.call_count == 1  # no retry on permanent error
 
 
@@ -87,10 +89,12 @@ async def test_raise_llm_error_on_permanent_failure(client: LLMClient):
 async def test_raise_llm_error_after_retry_exhausted(client: LLMClient):
     error = litellm.RateLimitError("rate limited", "model", "provider", None)
     mock = AsyncMock(side_effect=[error, error, error])
-    with patch("openswarm.llm.client.litellm.acompletion", mock):
-        with patch("openswarm.llm.client.asyncio.sleep", new_callable=AsyncMock):
-            with pytest.raises(LLMError, match="after 3 attempts"):
-                await client.chat([{"role": "user", "content": "hi"}])
+    with (
+        patch("openswarm.llm.client.litellm.acompletion", mock),
+        patch("openswarm.llm.client.asyncio.sleep", new_callable=AsyncMock),
+        pytest.raises(LLMError, match="after 3 attempts"),
+    ):
+        await client.chat([{"role": "user", "content": "hi"}])
     assert mock.call_count == 3
 
 
@@ -138,9 +142,11 @@ async def test_chat_stream_retries_on_transient_error(client: LLMClient):
             yield chunk
 
     mock = AsyncMock(side_effect=[error, _stream()])
-    with patch("openswarm.llm.client.litellm.acompletion", mock):
-        with patch("openswarm.llm.client.asyncio.sleep", new_callable=AsyncMock):
-            result = await client.chat_stream([{"role": "user", "content": "hi"}])
+    with (
+        patch("openswarm.llm.client.litellm.acompletion", mock),
+        patch("openswarm.llm.client.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        result = await client.chat_stream([{"role": "user", "content": "hi"}])
     assert result.content == "recovered"
     assert mock.call_count == 2
 
@@ -148,9 +154,11 @@ async def test_chat_stream_retries_on_transient_error(client: LLMClient):
 @pytest.mark.asyncio
 async def test_chat_stream_raises_on_permanent_failure(client: LLMClient):
     mock = AsyncMock(side_effect=litellm.AuthenticationError("bad key", "model", "provider", None))
-    with patch("openswarm.llm.client.litellm.acompletion", mock):
-        with pytest.raises(LLMError, match="bad key"):
-            await client.chat_stream([{"role": "user", "content": "hi"}])
+    with (
+        patch("openswarm.llm.client.litellm.acompletion", mock),
+        pytest.raises(LLMError, match="bad key"),
+    ):
+        await client.chat_stream([{"role": "user", "content": "hi"}])
 
 
 # --- Usage tracking tests ---
@@ -159,9 +167,11 @@ async def test_chat_stream_raises_on_permanent_failure(client: LLMClient):
 @pytest.mark.asyncio
 async def test_chat_returns_usage_stats(client: LLMClient):
     mock = AsyncMock(return_value=_make_response("hello"))
-    with patch("openswarm.llm.client.litellm.acompletion", mock):
-        with patch("openswarm.llm.client.litellm.completion_cost", return_value=0.0015):
-            result = await client.chat([{"role": "user", "content": "hi"}])
+    with (
+        patch("openswarm.llm.client.litellm.acompletion", mock),
+        patch("openswarm.llm.client.litellm.completion_cost", return_value=0.0015),
+    ):
+        result = await client.chat([{"role": "user", "content": "hi"}])
     assert result.usage is not None
     assert result.usage.total_tokens == 42
     assert result.usage.model == "gpt-test"
@@ -183,9 +193,11 @@ async def test_chat_usage_none_when_no_usage(client: LLMClient):
 @pytest.mark.asyncio
 async def test_chat_stream_returns_usage_stats(client: LLMClient):
     mock = mock_acompletion_stream("abc")
-    with patch("openswarm.llm.client.litellm.acompletion", mock):
-        with patch("openswarm.llm.client.litellm.completion_cost", return_value=0.001):
-            result = await client.chat_stream([{"role": "user", "content": "hi"}])
+    with (
+        patch("openswarm.llm.client.litellm.acompletion", mock),
+        patch("openswarm.llm.client.litellm.completion_cost", return_value=0.001),
+    ):
+        result = await client.chat_stream([{"role": "user", "content": "hi"}])
     assert result.usage is not None
     assert result.usage.total_tokens == 30
 

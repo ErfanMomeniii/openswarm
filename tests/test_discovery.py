@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import SAMPLE_YAML
 
 from openswarm.config.discovery import (
     TeamResolutionError,
@@ -15,8 +16,6 @@ from openswarm.config.discovery import (
     get_teams_dir,
     resolve_team,
 )
-
-from conftest import SAMPLE_YAML
 
 
 def test_local_config_names_discovered(isolated: Path):

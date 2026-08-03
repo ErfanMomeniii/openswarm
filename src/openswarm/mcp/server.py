@@ -27,15 +27,15 @@ from openswarm.workflow import get_workflow
 
 __all__ = [
     "LOCAL_CONFIG_NAMES",
-    "find_local_configs",
+    "create_mcp_server",
     "find_all_configs",
+    "find_local_configs",
     "find_team_configs",
+    "list_teams",
+    "main",
     "run_task",
     "run_task_with_config",
-    "list_teams",
     "team_info",
-    "create_mcp_server",
-    "main",
 ]
 
 

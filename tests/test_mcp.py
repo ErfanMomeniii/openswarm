@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from conftest import make_llm_response, mock_acompletion
 
 from openswarm.mcp.server import (
     find_all_configs,
@@ -16,9 +17,6 @@ from openswarm.mcp.server import (
     run_task_with_config,
     team_info,
 )
-
-from conftest import make_llm_response, mock_acompletion
-
 
 TEAM_YAML = textwrap.dedent("""\
     team:

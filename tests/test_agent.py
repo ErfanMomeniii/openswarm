@@ -5,12 +5,11 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+from conftest import mock_acompletion, mock_acompletion_stream
 
 from openswarm.config.models import AgentConfig
 from openswarm.core.agent import COLLABORATIVE_PROTOCOL, Agent
 from openswarm.core.message import Message, MessageType
-
-from conftest import mock_acompletion, mock_acompletion_stream
 
 
 @pytest.fixture

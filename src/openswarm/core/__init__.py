@@ -1,9 +1,9 @@
+from openswarm.core.agent import Agent
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task, TaskStatus
-from openswarm.core.agent import Agent
 from openswarm.core.team import Team
 
-__all__ = ["Message", "MessageType", "Task", "TaskStatus", "Agent", "Team"]
+__all__ = ["Agent", "Message", "MessageType", "Task", "TaskStatus", "Team"]
 
 
 def __getattr__(name: str):
