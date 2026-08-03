@@ -18,6 +18,26 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install package and dev dependencies
+        run: pip install -e ".[dev,mcp]"
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Test
+        run: pytest -q
+
+      - name: Verify tag matches package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$tag" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match pyproject version $version"
+            exit 1
+          fi
+
       - name: Install build tools
         run: pip install build
 
