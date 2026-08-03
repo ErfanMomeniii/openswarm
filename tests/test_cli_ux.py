@@ -5,12 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+from conftest import SAMPLE_YAML, make_llm_response, mock_acompletion
 from typer.testing import CliRunner
 
 from openswarm.cli.app import app
 from openswarm.llm.client import LLMError
-
-from conftest import SAMPLE_YAML, make_llm_response, mock_acompletion
 
 runner = CliRunner()
 
@@ -104,6 +103,21 @@ def test_run_writes_output_file(isolated: Path):
 
     assert result.exit_code == 0
     assert out.read_text() == "saved result"
+
+
+def test_verbose_does_not_enable_third_party_debug_logs(isolated: Path):
+    """-v shows inter-agent messages, not httpcore/openai request dumps."""
+    import logging
+
+    (isolated / "team.yaml").write_text(SAMPLE_YAML)
+
+    with patch("openswarm.llm.client.litellm.acompletion", _lead_responds("ok")):
+        result = runner.invoke(app, ["run", "Do something", "-v"])
+
+    assert result.exit_code == 0
+    assert logging.getLogger("openswarm").level == logging.DEBUG
+    for name in ("httpx", "httpcore", "openai", "LiteLLM"):
+        assert logging.getLogger(name).level == logging.WARNING
 
 
 def test_run_errors_go_to_stderr_not_stdout(isolated: Path):

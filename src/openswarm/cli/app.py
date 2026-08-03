@@ -7,7 +7,6 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -51,6 +50,11 @@ console = Console()
 err_console = Console(stderr=True)
 
 
+# HTTP and provider libraries log every request body at DEBUG, which buries the
+# inter-agent messages `-v` exists to show.
+NOISY_LOGGERS = ("httpx", "httpcore", "openai", "LiteLLM", "litellm", "asyncio", "urllib3")
+
+
 def _setup_logging(verbose: bool) -> None:
     env_level = os.environ.get("OPENSWARM_LOG_LEVEL", "").upper()
     if verbose:
@@ -59,11 +63,15 @@ def _setup_logging(verbose: bool) -> None:
         level = getattr(logging, env_level, logging.INFO)
     else:
         level = logging.WARNING
+
     logging.basicConfig(
-        level=level,
+        level=logging.WARNING,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    logging.getLogger("openswarm").setLevel(level)
+    for name in NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def _fail(message: str) -> None:
@@ -136,8 +144,8 @@ def _make_stream_printer() -> callable:
 @app.command()
 def run(
     task: str = typer.Argument(help="Task description for the team"),
-    config: Optional[str] = typer.Option(None, "--config", "-c", help="Path to team YAML config"),
-    team: Optional[str] = typer.Option(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to team YAML config"),
+    team: str | None = typer.Option(
         None, "--team", "-t", help="Team name (project-local or global config)"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show inter-agent messages"),
@@ -145,10 +153,8 @@ def run(
     quiet: bool = typer.Option(
         False, "--quiet", "-q", help="Print only the result — for piping and redirects"
     ),
-    output: Optional[Path] = typer.Option(
-        None, "--output", "-o", help="Write the result to a file"
-    ),
-    max_rounds: Optional[int] = typer.Option(
+    output: Path | None = typer.Option(None, "--output", "-o", help="Write the result to a file"),
+    max_rounds: int | None = typer.Option(
         None, "--max-rounds", help="Override the team's max_rounds for this run"
     ),
 ) -> None:
@@ -191,7 +197,7 @@ def run(
         _fail(f"LLM error: {e}")
     except KeyboardInterrupt:
         err_console.print("\n[yellow]Cancelled.[/yellow]")
-        raise typer.Exit(130)
+        raise typer.Exit(130) from None
 
     if output is not None:
         try:
@@ -221,8 +227,8 @@ def _execute(orchestrator, task, *, on_message, on_progress, show_status):
 
 @app.command()
 def interactive(
-    config: Optional[str] = typer.Option(None, "--config", "-c", help="Path to team YAML config"),
-    team: Optional[str] = typer.Option(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to team YAML config"),
+    team: str | None = typer.Option(
         None, "--team", "-t", help="Team name (project-local or global config)"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show inter-agent messages"),
@@ -241,14 +247,14 @@ def interactive(
 
 @app.command()
 def init(
-    template: Optional[str] = typer.Option(
+    template: str | None = typer.Option(
         None,
         "--template",
         "-T",
         help=f"Starter template: {', '.join(templates.TEMPLATES)}",
     ),
-    name: Optional[str] = typer.Option(None, "--name", "-n", help="Team name"),
-    output: Optional[Path] = typer.Option(
+    name: str | None = typer.Option(None, "--name", "-n", help="Team name"),
+    output: Path | None = typer.Option(
         None, "--output", "-o", help="Where to write the config (default: ./team.yaml)"
     ),
     global_: bool = typer.Option(
@@ -323,8 +329,8 @@ def _default_team_name() -> str:
 
 @app.command()
 def doctor(
-    config: Optional[str] = typer.Option(None, "--config", "-c", help="Check a specific config"),
-    team: Optional[str] = typer.Option(None, "--team", "-t", help="Check a specific team"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Check a specific config"),
+    team: str | None = typer.Option(None, "--team", "-t", help="Check a specific team"),
     check_connection: bool = typer.Option(
         False,
         "--check-connection",
