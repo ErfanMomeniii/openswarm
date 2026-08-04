@@ -8,6 +8,7 @@ from openswarm.core.agent import COLLABORATIVE_PROTOCOL
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
+from openswarm.llm.client import LLMError
 from openswarm.workflow.base import (
     MessageCallback,
     ProgressCallback,
@@ -60,14 +61,23 @@ class CollaborativeWorkflow(Workflow):
                 )
                 _log(input_msg)
 
-                if on_progress is not None:
-                    raw = await agent.respond_stream(
-                        input_msg,
-                        protocol_override=COLLABORATIVE_PROTOCOL,
-                        on_chunk=make_chunk_callback(on_progress, agent_name),
-                    )
-                else:
-                    raw = await agent.respond(input_msg, protocol_override=COLLABORATIVE_PROTOCOL)
+                try:
+                    if on_progress is not None:
+                        raw = await agent.respond_stream(
+                            input_msg,
+                            protocol_override=COLLABORATIVE_PROTOCOL,
+                            on_chunk=make_chunk_callback(on_progress, agent_name),
+                        )
+                    else:
+                        raw = await agent.respond(
+                            input_msg, protocol_override=COLLABORATIVE_PROTOCOL
+                        )
+                except LLMError as e:
+                    logger.warning(f"Agent '{agent_name}' unavailable, skipping turn: {e}")
+                    # Transcript feeds other agents' prompts — no raw error text.
+                    discussion.append(f"[{agent_name}] (unavailable — skipped this round)")
+                    all_agree = False
+                    continue
 
                 # Parse response
                 action = "discuss"

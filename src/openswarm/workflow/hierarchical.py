@@ -8,6 +8,7 @@ import logging
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
+from openswarm.llm.client import LLMError
 from openswarm.workflow.base import (
     MessageCallback,
     ProgressCallback,
@@ -53,8 +54,7 @@ class HierarchicalWorkflow(Workflow):
 
         current_msg = initial_msg
         target_agent = lead
-        # Best partial output seen so far — salvaged if we run out of rounds.
-        # Worker deliverables are preferred over lead chatter/delegation text.
+        # Salvaged if we run out of rounds; deliverables beat lead chatter.
         last_work: tuple[str, str] | None = None
         last_any: tuple[str, str] | None = None
 
@@ -62,14 +62,34 @@ class HierarchicalWorkflow(Workflow):
             logger.info(f"Round {round_num + 1}/{max_rounds}")
 
             is_lead = target_agent.name == lead.name
-            if on_progress is not None:
-                raw_response = await target_agent.respond_stream(
-                    current_msg,
-                    is_lead=is_lead,
-                    on_chunk=make_chunk_callback(on_progress, target_agent.name),
+            try:
+                if on_progress is not None:
+                    raw_response = await target_agent.respond_stream(
+                        current_msg,
+                        is_lead=is_lead,
+                        on_chunk=make_chunk_callback(on_progress, target_agent.name),
+                    )
+                else:
+                    raw_response = await target_agent.respond(current_msg, is_lead=is_lead)
+            except LLMError as e:
+                # Without the lead there is nobody to route around the failure.
+                if is_lead:
+                    raise
+                logger.warning(f"Agent '{target_agent.name}' unavailable: {e}")
+                # Error text is untrusted and unbounded: logged, never forwarded.
+                failure_msg = Message(
+                    from_agent="system",
+                    to_agent=lead.name,
+                    type=MessageType.RESULT,
+                    content=(
+                        f"Error: agent '{target_agent.name}' is unavailable and cannot be "
+                        "reached. Delegate to another agent or complete the task yourself."
+                    ),
                 )
-            else:
-                raw_response = await target_agent.respond(current_msg, is_lead=is_lead)
+                _log(failure_msg)
+                current_msg = failure_msg
+                target_agent = lead
+                continue
 
             logger.debug(f"Agent '{target_agent.name}' response: {raw_response}")
 
@@ -205,7 +225,7 @@ class HierarchicalWorkflow(Workflow):
                 current_msg = fallback_msg
                 target_agent = lead
 
-        # Max rounds hit — never throw away the work already paid for.
+        # Max rounds hit
         logger.warning(f"Max rounds ({max_rounds}) reached without the lead marking the task done")
         final = f"Max rounds ({max_rounds}) reached — the lead never marked the task done."
         salvaged = last_work or last_any

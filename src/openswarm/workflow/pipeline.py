@@ -8,6 +8,7 @@ import logging
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
+from openswarm.llm.client import LLMError
 from openswarm.workflow.base import (
     MessageCallback,
     ProgressCallback,
@@ -22,9 +23,8 @@ logger = logging.getLogger(__name__)
 def _extract_content(raw: str, agent_name: str) -> str:
     """Pull the payload out of an agent's JSON envelope.
 
-    Agents answer with the JSON protocol, so passing the raw envelope down the
-    chain would feed the next agent (and the user) `{"action": ...}` noise.
-    Models that ignore the protocol and reply in prose are passed through as-is.
+    Passing the envelope on would feed the next agent, and the user,
+    `{"action": ...}` noise. Prose replies pass through unchanged.
     """
     try:
         parsed = parse_agent_response(raw)
@@ -63,6 +63,7 @@ class PipelineWorkflow(Workflow):
             return "No agents in team."
 
         current_input = task.description
+        failed_stages: list[str] = []
 
         for i, agent_name in enumerate(agent_names):
             agent = team.get_agent(agent_name)
@@ -77,12 +78,17 @@ class PipelineWorkflow(Workflow):
             _log(input_msg)
 
             logger.info(f"Pipeline step {i + 1}/{len(agent_names)}: {agent_name}")
-            if on_progress is not None:
-                raw_response = await agent.respond_stream(
-                    input_msg, on_chunk=make_chunk_callback(on_progress, agent_name)
-                )
-            else:
-                raw_response = await agent.respond(input_msg)
+            try:
+                if on_progress is not None:
+                    raw_response = await agent.respond_stream(
+                        input_msg, on_chunk=make_chunk_callback(on_progress, agent_name)
+                    )
+                else:
+                    raw_response = await agent.respond(input_msg)
+            except LLMError as e:
+                logger.warning(f"Agent '{agent_name}' unavailable, skipping stage: {e}")
+                failed_stages.append(agent_name)
+                continue
 
             response_text = _extract_content(raw_response, agent_name)
 
@@ -95,6 +101,19 @@ class PipelineWorkflow(Workflow):
             _log(result_msg)
 
             current_input = response_text
+
+        if len(failed_stages) == len(agent_names):
+            # Nothing ran, so current_input is still the user's own task text.
+            raise LLMError(
+                "Every agent in the pipeline was unavailable: " + ", ".join(failed_stages)
+            )
+
+        if failed_stages:
+            # Warned, not folded into the result: `-o` output stays clean.
+            logger.warning(
+                f"Pipeline completed with {len(failed_stages)} skipped stage(s): "
+                f"{', '.join(failed_stages)}"
+            )
 
         task.complete(current_input)
         return current_input

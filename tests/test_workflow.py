@@ -300,3 +300,83 @@ async def test_workflow_on_progress_with_delegation(team_config: TeamConfig):
     assert result == "all done"
     assert "lead" in agent_names_seen
     assert "worker" in agent_names_seen
+
+
+# --- Provider failures must not kill the whole team ---
+
+
+@pytest.mark.asyncio
+async def test_worker_failure_is_reported_to_lead(team_config: TeamConfig):
+    """A worker's provider going down is routed back to the lead, not raised."""
+    from openswarm.llm.client import LLMError
+
+    team = Team(team_config)
+    workflow = HierarchicalWorkflow()
+    task = Task(description="Do the thing")
+    message_log: list[Message] = []
+
+    async def flaky(*args, **kwargs):
+        raise LLMError("provider exploded")
+
+    responses = [
+        make_llm_response({"action": "delegate", "to": "worker", "task": "sub"}),
+        make_llm_response({"action": "respond", "content": "handled it myself"}),
+    ]
+    mock = mock_acompletion(*responses)
+
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        worker = team.get_agent("worker")
+        with patch.object(worker, "respond", side_effect=flaky):
+            result = await workflow.execute(task, team, max_rounds=6, message_log=message_log)
+
+    assert result == "handled it myself"
+    failures = [m for m in message_log if m.from_agent == "system"]
+    assert failures and "unavailable" in failures[0].content
+
+
+@pytest.mark.asyncio
+async def test_lead_failure_still_raises(team_config: TeamConfig):
+    """Without the lead there is nothing to route around — surface the error."""
+    from openswarm.llm.client import LLMError
+
+    team = Team(team_config)
+    workflow = HierarchicalWorkflow()
+    task = Task(description="Do the thing")
+
+    async def flaky(*args, **kwargs):
+        raise LLMError("lead provider down")
+
+    with (
+        patch.object(team.get_agent("lead"), "respond", side_effect=flaky),
+        pytest.raises(LLMError, match="lead provider down"),
+    ):
+        await workflow.execute(task, team, max_rounds=3, message_log=[])
+
+
+@pytest.mark.asyncio
+async def test_provider_error_text_never_reaches_another_prompt(team_config: TeamConfig):
+    """Provider error bodies are untrusted and unbounded — log them, don't forward them."""
+    from openswarm.llm.client import LLMError
+
+    secret = "PROVIDER-INTERNAL-DETAIL-should-not-be-forwarded"
+    team = Team(team_config)
+    workflow = HierarchicalWorkflow()
+    task = Task(description="Do the thing")
+    message_log: list[Message] = []
+
+    async def flaky(*args, **kwargs):
+        raise LLMError(secret)
+
+    responses = [
+        make_llm_response({"action": "delegate", "to": "worker", "task": "sub"}),
+        make_llm_response({"action": "respond", "content": "done"}),
+    ]
+    mock = mock_acompletion(*responses)
+    with (
+        patch("openswarm.llm.client.litellm.acompletion", mock),
+        patch.object(team.get_agent("worker"), "respond", side_effect=flaky),
+    ):
+        await workflow.execute(task, team, max_rounds=6, message_log=message_log)
+
+    assert all(secret not in m.content for m in message_log)
+    assert all(secret not in turn["content"] for turn in team.get_agent("lead").history)

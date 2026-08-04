@@ -169,3 +169,58 @@ def test_collaborative_min_agents_validation():
                 AgentConfig(name="alone", role="dev", model="m", host="h", api_key="k"),
             ],
         )
+
+
+@pytest.mark.asyncio
+async def test_collaborative_skips_unavailable_agent(collab_config: TeamConfig):
+    """One unreachable provider must not end the discussion."""
+    from openswarm.llm.client import LLMError
+
+    team = Team(collab_config)
+    workflow = CollaborativeWorkflow()
+    task = Task(description="Pick an option")
+
+    async def flaky(*args, **kwargs):
+        raise LLMError("frontend provider down")
+
+    responses = [
+        make_llm_response({"action": "discuss", "content": "I like A"}),
+        make_llm_response({"action": "respond", "content": "Decision: A"}),
+    ]
+    mock = mock_acompletion(*responses)
+    with (
+        patch("openswarm.llm.client.litellm.acompletion", mock),
+        patch.object(team.get_agent(team.agent_names[1]), "respond", side_effect=flaky),
+    ):
+        result = await workflow.execute(task, team, max_rounds=2, message_log=[])
+
+    assert "Decision: A" in result
+
+
+@pytest.mark.asyncio
+async def test_collaborative_keeps_provider_errors_out_of_the_transcript(
+    collab_config: TeamConfig,
+):
+    from openswarm.llm.client import LLMError
+
+    secret = "GATEWAY-STACKTRACE-should-not-be-forwarded"
+    team = Team(collab_config)
+    workflow = CollaborativeWorkflow()
+    task = Task(description="Pick an option")
+    message_log: list[Message] = []
+
+    async def flaky(*args, **kwargs):
+        raise LLMError(secret)
+
+    responses = [
+        make_llm_response({"action": "discuss", "content": "I like A"}),
+        make_llm_response({"action": "respond", "content": "Decision: A"}),
+    ]
+    mock = mock_acompletion(*responses)
+    with (
+        patch("openswarm.llm.client.litellm.acompletion", mock),
+        patch.object(team.get_agent(team.agent_names[1]), "respond", side_effect=flaky),
+    ):
+        await workflow.execute(task, team, max_rounds=2, message_log=message_log)
+
+    assert all(secret not in m.content for m in message_log)

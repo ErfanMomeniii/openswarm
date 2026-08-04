@@ -179,3 +179,45 @@ async def test_pipeline_output_flows_through(pipeline_config: TeamConfig):
     ]
     assert len(task_to_editor) == 1
     assert task_to_editor[0].content == "transformed"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_skips_unavailable_stage(pipeline_config: TeamConfig):
+    """A dead provider mid-chain passes the previous output on instead of aborting."""
+    from openswarm.llm.client import LLMError
+
+    team = Team(pipeline_config)
+    workflow = PipelineWorkflow()
+    task = Task(description="Write a story")
+
+    async def flaky(*args, **kwargs):
+        raise LLMError("editor provider down")
+
+    mock = mock_acompletion("the draft")
+    with (
+        patch("openswarm.llm.client.litellm.acompletion", mock),
+        patch.object(team.get_agent("editor"), "respond", side_effect=flaky),
+    ):
+        result = await workflow.execute(task, team, max_rounds=5, message_log=[])
+
+    assert result == "the draft"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_all_stages_failing_raises(pipeline_config: TeamConfig):
+    """If nothing ran, the user's own prompt must not come back as the answer."""
+    from openswarm.llm.client import LLMError
+
+    team = Team(pipeline_config)
+    workflow = PipelineWorkflow()
+    task = Task(description="Original task text")
+
+    async def flaky(*args, **kwargs):
+        raise LLMError("provider down")
+
+    with (
+        patch.object(team.get_agent("writer"), "respond", side_effect=flaky),
+        patch.object(team.get_agent("editor"), "respond", side_effect=flaky),
+        pytest.raises(LLMError, match="Every agent in the pipeline"),
+    ):
+        await workflow.execute(task, team, max_rounds=5, message_log=[])
