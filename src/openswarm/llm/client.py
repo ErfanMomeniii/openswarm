@@ -18,8 +18,7 @@ from openswarm.core.usage import UsageStats
 litellm.use_aiohttp_transport = False
 litellm.disable_aiohttp_transport = True
 
-# litellm prints a "Give Feedback / Get Help" banner on every provider error.
-# Users get our own error message instead.
+# Suppresses litellm's "Give Feedback / Get Help" banner on every provider error.
 litellm.suppress_debug_info = True
 
 litellm.aclient_session = httpx.AsyncClient(trust_env=False, follow_redirects=True)
@@ -53,6 +52,36 @@ _TRANSIENT_EXCEPTIONS = (
 )
 
 
+def _response_text(response) -> str:
+    """Pull assistant text out of a completion, tolerating provider quirks.
+
+    `content` is null when a provider stops for anything but plain text (content
+    filters, tool calls, truncation). Downstream code needs a str either way.
+    """
+    choices = getattr(response, "choices", None)
+    if not choices:
+        raise LLMError("Provider returned no choices in the completion")
+    return getattr(choices[0].message, "content", None) or ""
+
+
+def describe_failure(error: LLMError) -> str:
+    """Suggest what to check for a failed call.
+
+    A hint, not a verdict: a bad key and an unknown model can both surface as a
+    403, and a DNS failure can arrive as a 500.
+    """
+    status = getattr(error.original, "status_code", None)
+    if status in (401, 403):
+        return "check api_key, and that this key is allowed to use this model"
+    if status == 404:
+        return "check the model name and host"
+    if status in (400, 422):
+        return "provider rejected the request — check the model name and parameters"
+    if isinstance(status, int) and 500 <= status < 600:
+        return "provider-side error — may be transient, or the host may be wrong"
+    return "check host, model, and api_key"
+
+
 def _extract_usage(response, model: str, elapsed: float) -> UsageStats | None:
     """Extract usage stats from a litellm response, return None on failure."""
     usage = getattr(response, "usage", None)
@@ -63,7 +92,6 @@ def _extract_usage(response, model: str, elapsed: float) -> UsageStats | None:
     completion_tokens = getattr(usage, "completion_tokens", 0) or 0
 
     cost: float | None = None
-    # Providers that report no pricing simply leave cost unset.
     with contextlib.suppress(Exception):
         cost = litellm.completion_cost(completion_response=response)
 
@@ -87,13 +115,13 @@ class LLMClient:
         self.max_tokens = config.max_tokens
         self.temperature = config.temperature
 
-    async def chat(self, messages: list[dict[str, str]]) -> LLMResult:
+    async def chat(self, messages: list[dict[str, str]], attempts: int = 3) -> LLMResult:
         """Send messages to LLM, return LLMResult with content and usage.
 
-        Retries up to 2 times on transient errors (rate limit, timeout, connection).
-        Raises LLMError on permanent failures.
+        Retries transient errors (rate limit, timeout, connection) up to
+        `attempts` times. Raises LLMError on permanent failures.
         """
-        max_attempts = 3
+        max_attempts = attempts
         last_error: Exception | None = None
 
         for attempt in range(max_attempts):
@@ -119,8 +147,7 @@ class LLMClient:
                 tokens = f", tokens={usage_stats.total_tokens}" if usage_stats else ""
                 logger.info(f"LLM call to {self.model}: {elapsed:.2f}s{tokens}")
 
-                content = response.choices[0].message.content
-                return LLMResult(content=content, usage=usage_stats)
+                return LLMResult(content=_response_text(response), usage=usage_stats)
 
             except _TRANSIENT_EXCEPTIONS as e:
                 last_error = e

@@ -293,3 +293,49 @@ async def test_chat_stream_skips_chunks_with_empty_choices_mid_stream(client: LL
     assert result.content == "ok"
     assert result.usage is not None
     assert result.usage.prompt_tokens == 3
+
+
+# --- Provider response quirks ---
+
+
+@pytest.mark.asyncio
+async def test_null_content_becomes_empty_string(client: LLMClient):
+    """Providers return content=null for content filters, tool calls, truncation."""
+    resp = MagicMock()
+    resp.choices = [MagicMock()]
+    resp.choices[0].message.content = None
+    resp.usage = MagicMock(prompt_tokens=5, completion_tokens=0)
+
+    with patch("openswarm.llm.client.litellm.acompletion", AsyncMock(return_value=resp)):
+        result = await client.chat([{"role": "user", "content": "hi"}])
+
+    assert result.content == ""
+
+
+@pytest.mark.asyncio
+async def test_missing_choices_raises_a_clear_error(client: LLMClient):
+    """Some gateways answer 200 with an empty choices list."""
+    resp = MagicMock()
+    resp.choices = []
+    resp.usage = None
+
+    with (
+        patch("openswarm.llm.client.litellm.acompletion", AsyncMock(return_value=resp)),
+        pytest.raises(LLMError, match="no choices"),
+    ):
+        await client.chat([{"role": "user", "content": "hi"}])
+
+
+def test_failure_hint_uses_status_not_message_text():
+    """Gateways word errors differently; the HTTP status is the only usable signal."""
+    from openswarm.llm.client import describe_failure
+
+    def err(status):
+        original = Exception("wording varies wildly between gateways")
+        original.status_code = status
+        return LLMError("boom", original=original)
+
+    assert "api_key" in describe_failure(err(401))
+    assert "model name" in describe_failure(err(404))
+    assert "provider-side" in describe_failure(err(502))
+    assert "host" in describe_failure(LLMError("no original exception at all"))
