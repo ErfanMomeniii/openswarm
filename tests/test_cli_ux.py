@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from conftest import SAMPLE_YAML, make_llm_response, mock_acompletion
 from typer.testing import CliRunner
 
@@ -255,15 +256,85 @@ def test_doctor_connection_check_skipped_when_env_unset(isolated: Path, monkeypa
     chat.assert_not_called()
 
 
-def test_doctor_connection_check_failure(isolated: Path):
+def test_doctor_any_probe_failure_is_a_problem(isolated: Path):
+    """Gateways collapse different faults onto the same errors — never pass a guess."""
+    import litellm
+
     (isolated / "team.yaml").write_text(SAMPLE_YAML)
-    with patch(
-        "openswarm.cli.app.LLMClient.chat",
-        side_effect=LLMError("bad api key"),
-    ):
+    error = LLMError(
+        "provider blew up", original=litellm.InternalServerError("boom", "gpt-test", "openai")
+    )
+    with patch("openswarm.cli.app.LLMClient.chat", side_effect=error):
+        result = runner.invoke(app, ["doctor", "--check-connection"])
+
+    assert result.exit_code == 1
+    assert "hint:" in result.output
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [(401, "api_key"), (403, "api_key"), (404, "model name"), (400, "rejected"), (503, "provider")],
+)
+def test_failure_hints_follow_http_status(status: int, expected: str):
+    from openswarm.llm.client import describe_failure
+
+    original = Exception("x")
+    original.status_code = status
+    assert expected in describe_failure(LLMError("boom", original=original))
+
+
+def test_failure_hint_without_a_status_is_still_useful():
+    from openswarm.llm.client import describe_failure
+
+    assert "host" in describe_failure(LLMError("boom"))
+
+
+def test_doctor_connection_probe_leaves_room_for_reasoning(isolated: Path):
+    """A 1-token probe makes reasoning models return empty; keep a workable budget."""
+    from openswarm.cli.app import PROBE_MAX_TOKENS
+
+    assert PROBE_MAX_TOKENS >= 8
+
+
+def test_doctor_reports_bad_credentials_as_a_problem(isolated: Path):
+    import litellm
+
+    (isolated / "team.yaml").write_text(SAMPLE_YAML)
+    error = LLMError(
+        "bad api key", original=litellm.AuthenticationError("bad api key", "gpt-test", "openai")
+    )
+    with patch("openswarm.cli.app.LLMClient.chat", side_effect=error):
         result = runner.invoke(app, ["doctor", "--check-connection"])
     assert result.exit_code == 1
     assert "bad api key" in result.output
+
+
+def test_doctor_reports_unreachable_host_as_a_problem(isolated: Path):
+    import litellm
+
+    (isolated / "team.yaml").write_text(SAMPLE_YAML)
+    error = LLMError(
+        "connection refused",
+        original=litellm.APIConnectionError(
+            message="connection refused", model="gpt-test", llm_provider="openai"
+        ),
+    )
+    with patch("openswarm.cli.app.LLMClient.chat", side_effect=error):
+        result = runner.invoke(app, ["doctor", "--check-connection"])
+    assert result.exit_code == 1
+
+
+def test_doctor_reports_unknown_model_as_a_problem(isolated: Path):
+    import litellm
+
+    (isolated / "team.yaml").write_text(SAMPLE_YAML)
+    error = LLMError(
+        "model not found",
+        original=litellm.NotFoundError("model not found", "gpt-test", "openai"),
+    )
+    with patch("openswarm.cli.app.LLMClient.chat", side_effect=error):
+        result = runner.invoke(app, ["doctor", "--check-connection"])
+    assert result.exit_code == 1
 
 
 # --- team subcommands ---
@@ -307,3 +378,24 @@ def test_flat_aliases_still_work(isolated: Path):
     (isolated / "team.yaml").write_text(SAMPLE_YAML)
     assert runner.invoke(app, ["team-list"]).exit_code == 0
     assert runner.invoke(app, ["team-info", "team"]).exit_code == 0
+
+
+def test_doctor_probe_retries_transient_blips(isolated: Path):
+    """Providers flake; a healthy config must not fail on one bad response."""
+    from openswarm.cli.app import PROBE_ATTEMPTS
+
+    assert PROBE_ATTEMPTS >= 2
+
+    (isolated / "team.yaml").write_text(SAMPLE_YAML)
+    calls: list[int] = []
+
+    async def flaky_once(self, messages, attempts=3):
+        calls.append(1)
+        raise LLMError("transient blip")
+
+    with patch("openswarm.cli.app.LLMClient.chat", flaky_once):
+        runner.invoke(app, ["doctor", "--check-connection"])
+
+    # chat() owns the retry loop, so doctor calls it once per agent and passes
+    # the attempt budget down.
+    assert len(calls) == 2  # two agents in SAMPLE_YAML

@@ -33,7 +33,7 @@ from openswarm.config.loader import inspect_config, load_config
 from openswarm.config.models import TeamConfig
 from openswarm.core.orchestrator import Orchestrator
 from openswarm.core.team import Team
-from openswarm.llm.client import LLMClient, LLMError
+from openswarm.llm.client import LLMClient, LLMError, describe_failure
 from openswarm.workflow import get_workflow
 
 app = typer.Typer(
@@ -50,8 +50,7 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-# HTTP and provider libraries log every request body at DEBUG, which buries the
-# inter-agent messages `-v` exists to show.
+# These log entire request bodies at DEBUG, burying the messages `-v` exists to show.
 NOISY_LOGGERS = ("httpx", "httpcore", "openai", "LiteLLM", "litellm", "asyncio", "urllib3")
 
 
@@ -334,7 +333,7 @@ def doctor(
     check_connection: bool = typer.Option(
         False,
         "--check-connection",
-        help="Send a 1-token request to each agent's endpoint (costs a fraction of a cent)",
+        help="Send a tiny request to each agent's endpoint (costs a fraction of a cent)",
     ),
 ) -> None:
     """Validate configs, environment, and (optionally) provider connectivity."""
@@ -402,17 +401,44 @@ def _mcp_installed() -> bool:
         return False
 
 
+# A 1-token probe comes back empty from reasoning models, which some gateways
+# report as an error. One retry absorbs a single transient blip.
+PROBE_MAX_TOKENS = 16
+PROBE_ATTEMPTS = 2
+
+
 def _check_connections(team_config: TeamConfig) -> int:
-    """Ping each agent's endpoint with a minimal request. Returns problem count."""
+    """Ping each agent's endpoint with a minimal request. Returns problem count.
+
+    Any failure counts as a problem: gateways report a bad key and an unknown
+    model with the same status, so guessing which errors are harmless risks
+    passing a config that cannot run. One event loop for all probes — a loop per
+    agent leaves litellm's logging tasks unawaited and warns at shutdown.
+    """
+
+    async def probe_all() -> list[LLMError | None]:
+        results: list[LLMError | None] = []
+        for agent in team_config.agents:
+            probe = agent.model_copy(update={"max_tokens": PROBE_MAX_TOKENS})
+            try:
+                await LLMClient(probe).chat(
+                    [{"role": "user", "content": "ping"}], attempts=PROBE_ATTEMPTS
+                )
+                results.append(None)
+            except LLMError as e:
+                results.append(e)
+        return results
+
     problems = 0
-    for agent in team_config.agents:
-        probe = agent.model_copy(update={"max_tokens": 1})
-        try:
-            asyncio.run(LLMClient(probe).chat([{"role": "user", "content": "ping"}]))
-            console.print(f"  [green]✓[/green] {agent.name} → {agent.model} reachable")
-        except LLMError as e:
+    for agent, error in zip(team_config.agents, asyncio.run(probe_all()), strict=True):
+        label = f"{agent.name} → {agent.model}"
+        if error is None:
+            console.print(f"  [green]✓[/green] {label} reachable")
+        else:
             problems += 1
-            console.print(f"  [red]✗ {agent.name} → {agent.model}:[/red] {e}")
+            console.print(f"  [red]✗ {label}:[/red] {error}")
+            console.print(f"      [yellow]hint:[/yellow] {describe_failure(error)}")
+    return problems
     return problems
 
 
