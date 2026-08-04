@@ -16,8 +16,8 @@ ProgressCallback = Callable[[str, str], None]  # (agent_name, chunk)
 def make_chunk_callback(on_progress: ProgressCallback, agent_name: str) -> Callable[[str], None]:
     """Bind an agent name to a progress callback.
 
-    Built outside the workflow loop so the closure captures this agent's name
-    rather than whatever the loop variable holds when the callback fires.
+    Built outside the loop so the closure captures this agent's name, not
+    whatever the loop variable holds when the callback fires.
     """
 
     def chunk_cb(chunk: str) -> None:

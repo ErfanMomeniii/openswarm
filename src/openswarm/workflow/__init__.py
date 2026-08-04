@@ -19,7 +19,6 @@ WORKFLOWS: dict[str, type[Workflow]] = {
     "collaborative": CollaborativeWorkflow,
 }
 
-# Config validation and the factory must agree on what's supported.
 assert set(WORKFLOWS) == set(WORKFLOW_TYPES), "WORKFLOWS drifted from config.WORKFLOW_TYPES"
 
 

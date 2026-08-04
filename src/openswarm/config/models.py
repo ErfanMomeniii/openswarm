@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-#: Workflow types accepted in config. Kept here (not in openswarm.workflow) so
-#: config validation stays import-cycle free; the workflow factory validates
-#: against the same tuple.
+#: Lives here rather than in openswarm.workflow to keep config validation
+#: import-cycle free. The workflow factory asserts it matches.
 WORKFLOW_TYPES = ("hierarchical", "pipeline", "collaborative")
 
 
