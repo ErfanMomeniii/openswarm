@@ -193,7 +193,7 @@ openswarm run "Fix the login bug" --team backend
 # Scaffold and check
 openswarm init                  # create team.yaml
 openswarm doctor                # validate configs, env vars, providers
-openswarm doctor --check-connection   # also ping each agent's endpoint (1 token each)
+openswarm doctor --check-connection   # also ping each agent's endpoint (a few tokens each)
 
 # Inspect
 openswarm team list             # all teams, local and global
@@ -310,7 +310,7 @@ api_key: ${DEEPSEEK_API_KEY}
 
 `${VAR}` with nothing set is an error with the exact `export` line you need. `${VAR:-fallback}` never fails.
 
-**What models can I use?** Any model with an OpenAI-compatible API — Claude, GPT, DeepSeek, Mistral, Llama, local models via Ollama. If [litellm](https://docs.litellm.ai/docs/providers) supports it, OpenSwarm supports it.
+**What models can I use?** Any model with an OpenAI-compatible API — Claude, GPT, DeepSeek, Mistral, Llama, local models via Ollama, or a self-hosted gateway. If [litellm](https://docs.litellm.ai/docs/providers) supports it, OpenSwarm supports it. If litellm can't infer the provider from a model name, prefix it with `openai/`.
 
 ## Workflow Types
 
@@ -377,6 +377,7 @@ Requires at least 2 agents. No `lead` field needed.
 - Config validation catches problems at load time: missing `lead`, unknown workflow type, duplicate agent names, invalid temperature/token values, malformed YAML — each naming the field and file
 - Unset `${ENV_VAR}` references are reported together, with the `export` lines to fix them
 - If a hierarchical run hits `max_rounds` without the lead finishing, the last real agent output is returned rather than discarded
+- **One provider going down does not kill the run.** A failed worker is reported back to the lead, which routes around it or finishes the task itself; a failed participant is skipped in collaborative discussions; a failed pipeline stage passes the previous stage's output through. Only the lead agent failing is fatal, since nothing can drive the run without it.
 - `openswarm doctor` catches all of the above before you spend a token
 
 ## Cost Comparison
