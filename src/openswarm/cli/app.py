@@ -396,7 +396,7 @@ def _mcp_installed() -> bool:
     from importlib.util import find_spec
 
     try:
-        return find_spec("mcp.server.fastmcp") is not None
+        return any(find_spec(name) is not None for name in ("mcp.server.fastmcp", "mcp.server"))
     except (ImportError, ValueError):
         return False
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import textwrap
 from pathlib import Path
 from unittest.mock import patch
@@ -253,35 +254,48 @@ async def test_run_task_with_config_not_found():
 # --- Tool descriptions ---
 
 
+requires_mcp = pytest.mark.skipif(
+    importlib.util.find_spec("mcp") is None, reason="mcp extra not installed"
+)
+
+
+@requires_mcp
 def test_tool_descriptions():
-    """Verify MCP tool descriptions are detailed and informative."""
-    try:
-        from unittest.mock import MagicMock
+    """Verify MCP tool descriptions are detailed and informative.
 
-        with patch("mcp.server.fastmcp.FastMCP") as mock_cls:
-            mock_server = MagicMock()
-            mock_cls.return_value = mock_server
+    Patches our own server-class lookup rather than a library path, so this
+    holds whether the installed mcp exposes FastMCP or MCPServer.
+    """
+    from unittest.mock import MagicMock
 
-            tools = {}
+    from openswarm.mcp.server import create_mcp_server
 
-            def capture_tool():
-                def decorator(func):
-                    tools[func.__name__] = func.__doc__
-                    return func
+    tools = {}
 
-                return decorator
+    def capture_tool():
+        def decorator(func):
+            tools[func.__name__] = func.__doc__
+            return func
 
-            mock_server.tool = capture_tool
+        return decorator
 
-            from openswarm.mcp.server import create_mcp_server
+    mock_server = MagicMock()
+    mock_server.tool = capture_tool
 
-            create_mcp_server()
+    with patch("openswarm.mcp.server._server_class", return_value=lambda **kw: mock_server):
+        create_mcp_server()
 
-            expected_tools = ["openswarm_run", "openswarm_teams", "openswarm_team_info"]
-            for name in expected_tools:
-                assert name in tools, f"Tool {name} not registered"
-                doc = tools[name]
-                assert doc is not None, f"Tool {name} has no docstring"
-                assert len(doc) > 50, f"Tool {name} docstring too short"
-    except ImportError:
-        pytest.skip("mcp package not installed")
+    for name in ["openswarm_run", "openswarm_teams", "openswarm_team_info"]:
+        assert name in tools, f"Tool {name} not registered"
+        doc = tools[name]
+        assert doc is not None, f"Tool {name} has no docstring"
+        assert len(doc) > 50, f"Tool {name} docstring too short"
+
+
+@requires_mcp
+def test_server_class_resolves_on_installed_mcp():
+    """Whichever mcp major is installed, we must find a server class."""
+    from openswarm.mcp.server import _server_class
+
+    cls = _server_class()
+    assert cls.__name__ in ("FastMCP", "MCPServer")

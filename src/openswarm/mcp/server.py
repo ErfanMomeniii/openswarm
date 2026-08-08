@@ -192,11 +192,21 @@ def _build_instructions() -> str:
     )
 
 
-def create_mcp_server():
-    """Create and return the FastMCP server instance."""
-    from mcp.server.fastmcp import FastMCP
+def _server_class():
+    """Return the MCP server class. Renamed from FastMCP to MCPServer in mcp 2.0."""
+    try:
+        from mcp.server.fastmcp import FastMCP  # mcp < 2
 
-    mcp = FastMCP("openswarm", instructions=_build_instructions())
+        return FastMCP
+    except ImportError:
+        from mcp.server import MCPServer  # mcp >= 2
+
+        return MCPServer
+
+
+def create_mcp_server():
+    """Create and return the MCP server instance."""
+    mcp = _server_class()(name="openswarm", instructions=_build_instructions())
 
     @mcp.tool()
     async def openswarm_run(task: str, team: str = "") -> str:
