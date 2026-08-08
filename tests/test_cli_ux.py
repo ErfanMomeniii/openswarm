@@ -121,10 +121,17 @@ def test_verbose_does_not_enable_third_party_debug_logs(isolated: Path):
         assert logging.getLogger(name).level == logging.WARNING
 
 
+def _split_stream_runner() -> CliRunner:
+    """A runner that keeps stdout and stderr apart, across click versions."""
+    try:
+        return CliRunner(mix_stderr=False)  # click < 8.2
+    except TypeError:
+        return CliRunner()  # click >= 8.2 separates the streams by default
+
+
 def test_run_errors_go_to_stderr_not_stdout(isolated: Path):
     """`openswarm run -q > out.md` must never capture an error message."""
-    split_runner = CliRunner(mix_stderr=False)
-    result = split_runner.invoke(app, ["run", "Do something", "-q"])
+    result = _split_stream_runner().invoke(app, ["run", "Do something", "-q"])
 
     assert result.exit_code == 1
     assert result.stdout == ""
