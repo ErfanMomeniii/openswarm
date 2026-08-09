@@ -339,3 +339,39 @@ def test_failure_hint_uses_status_not_message_text():
     assert "model name" in describe_failure(err(404))
     assert "provider-side" in describe_failure(err(502))
     assert "host" in describe_failure(LLMError("no original exception at all"))
+
+
+@pytest.mark.asyncio
+async def test_truncated_response_is_flagged(client: LLMClient, caplog):
+    """Reasoning models burn the budget thinking; silent truncation looks like an answer."""
+    resp = MagicMock()
+    resp.choices = [MagicMock()]
+    resp.choices[0].message.content = "half an ans"
+    resp.choices[0].finish_reason = "length"
+    resp.usage = MagicMock(prompt_tokens=5, completion_tokens=10)
+
+    with (
+        caplog.at_level("WARNING"),
+        patch("openswarm.llm.client.litellm.acompletion", AsyncMock(return_value=resp)),
+    ):
+        result = await client.chat([{"role": "user", "content": "hi"}])
+
+    assert result.content == "half an ans"
+    assert "max_tokens" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_complete_response_is_not_flagged(client: LLMClient, caplog):
+    resp = MagicMock()
+    resp.choices = [MagicMock()]
+    resp.choices[0].message.content = "done"
+    resp.choices[0].finish_reason = "stop"
+    resp.usage = MagicMock(prompt_tokens=5, completion_tokens=2)
+
+    with (
+        caplog.at_level("WARNING"),
+        patch("openswarm.llm.client.litellm.acompletion", AsyncMock(return_value=resp)),
+    ):
+        await client.chat([{"role": "user", "content": "hi"}])
+
+    assert "truncated" not in caplog.text

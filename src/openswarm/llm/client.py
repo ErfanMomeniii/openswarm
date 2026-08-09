@@ -52,7 +52,7 @@ _TRANSIENT_EXCEPTIONS = (
 )
 
 
-def _response_text(response) -> str:
+def _response_text(response, model: str = "") -> str:
     """Pull assistant text out of a completion, tolerating provider quirks.
 
     `content` is null when a provider stops for anything but plain text (content
@@ -61,6 +61,15 @@ def _response_text(response) -> str:
     choices = getattr(response, "choices", None)
     if not choices:
         raise LLMError("Provider returned no choices in the completion")
+
+    if getattr(choices[0], "finish_reason", None) == "length":
+        # Truncated output is rarely usable: reasoning models spend the budget
+        # thinking and get cut off before the answer.
+        logger.warning(
+            f"Response from {model or 'the model'} hit max_tokens and was truncated — "
+            "raise max_tokens for this agent"
+        )
+
     return getattr(choices[0].message, "content", None) or ""
 
 
@@ -147,7 +156,7 @@ class LLMClient:
                 tokens = f", tokens={usage_stats.total_tokens}" if usage_stats else ""
                 logger.info(f"LLM call to {self.model}: {elapsed:.2f}s{tokens}")
 
-                return LLMResult(content=_response_text(response), usage=usage_stats)
+                return LLMResult(content=_response_text(response, self.model), usage=usage_stats)
 
             except _TRANSIENT_EXCEPTIONS as e:
                 last_error = e
@@ -198,11 +207,14 @@ class LLMClient:
 
                 accumulated = []
                 usage_chunk = None
+                truncated = False
                 async for chunk in response:
                     if getattr(chunk, "usage", None):
                         usage_chunk = chunk
                     if not chunk.choices:
                         continue
+                    if chunk.choices[0].finish_reason == "length":
+                        truncated = True
                     delta = chunk.choices[0].delta
                     content = getattr(delta, "content", None)
                     if content:
@@ -212,6 +224,11 @@ class LLMClient:
 
                 elapsed = time.monotonic() - start
                 result = "".join(accumulated)
+                if truncated:
+                    logger.warning(
+                        f"Response from {self.model} hit max_tokens and was truncated — "
+                        "raise max_tokens for this agent"
+                    )
 
                 # OpenAI-compatible streams put usage on a terminal chunk with empty choices.
                 usage_stats = (
