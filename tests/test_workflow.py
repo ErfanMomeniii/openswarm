@@ -380,3 +380,28 @@ async def test_provider_error_text_never_reaches_another_prompt(team_config: Tea
 
     assert all(secret not in m.content for m in message_log)
     assert all(secret not in turn["content"] for turn in team.get_agent("lead").history)
+
+
+# --- Regression: escaped newlines must survive the regex fallback ---
+
+
+def test_regex_fallback_unescapes_newlines():
+    """A code block returned via the fallback path must not arrive as one line."""
+    raw = '{"action": "respond", "content": "Run `python "x.py"`:\\n\\n```python\\ncode()\\n```"}'
+    content = _parse_agent_response(raw)["content"]
+
+    assert "\\n" not in content
+    assert content.count("\n") == 4
+
+
+def test_regex_fallback_unescapes_quotes():
+    raw = '{"action": "respond", "content": "say "hi":\\n\\ndef f():\\n    return \\"x\\""}'
+    content = _parse_agent_response(raw)["content"]
+
+    assert '\\"' not in content
+    assert 'return "x"' in content
+
+
+def test_strict_json_path_still_unescapes():
+    content = _parse_agent_response('{"action": "respond", "content": "a\\nb"}')["content"]
+    assert content == "a\nb"

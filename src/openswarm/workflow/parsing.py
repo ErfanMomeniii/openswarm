@@ -6,6 +6,20 @@ import json
 import re
 
 
+def _unescape(text: str) -> str:
+    """Turn JSON escape sequences into real characters.
+
+    The regex fallback slices the raw response, so `\\n` and `\\"` arrive
+    literally. Without this a code block comes back as one unusable line.
+    """
+    try:
+        return json.loads(f'"{text}"')
+    except json.JSONDecodeError:
+        return (
+            text.replace('\\"', '"').replace("\\n", "\n").replace("\\t", "\t").replace("\\\\", "\\")
+        )
+
+
 def parse_agent_response(raw: str) -> dict:
     """Parse JSON response from agent.
 
@@ -65,6 +79,6 @@ def parse_agent_response(raw: str) -> dict:
             content = content_match.group(1)
             # Remove trailing "} or similar
             content = re.sub(r'"\s*\}\s*$', "", content)
-            return {"action": action, "content": content}
+            return {"action": action, "content": _unescape(content)}
 
     raise json.JSONDecodeError("No valid JSON found", raw, 0)
