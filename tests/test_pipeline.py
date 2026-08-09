@@ -221,3 +221,27 @@ async def test_pipeline_all_stages_failing_raises(pipeline_config: TeamConfig):
         pytest.raises(LLMError, match="Every agent in the pipeline"),
     ):
         await workflow.execute(task, team, max_rounds=5, message_log=[])
+
+
+@pytest.mark.asyncio
+async def test_pipeline_agents_get_the_pipeline_protocol(pipeline_config: TeamConfig):
+    """Pipeline stages must not be offered delegate/review actions that cannot work."""
+    from openswarm.core.agent import PIPELINE_PROTOCOL
+
+    team = Team(pipeline_config)
+    workflow = PipelineWorkflow()
+    task = Task(description="Write a story")
+    seen: list[str | None] = []
+
+    async def capture(self, message, is_lead=False, protocol_override=None, **kw):
+        seen.append(protocol_override)
+        return "draft"
+
+    with patch("openswarm.core.agent.Agent.respond", capture):
+        await workflow.execute(task, team, max_rounds=5, message_log=[])
+
+    assert seen and all(p == PIPELINE_PROTOCOL for p in seen)
+    # No action a pipeline stage cannot actually perform.
+    for forbidden in ('"action": "delegate"', '"action": "review"', '"action": "question"'):
+        assert forbidden not in PIPELINE_PROTOCOL
+    assert '"action": "result"' in PIPELINE_PROTOCOL

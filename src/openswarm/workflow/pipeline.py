@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 
+from openswarm.core.agent import PIPELINE_PROTOCOL
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
@@ -81,10 +82,14 @@ class PipelineWorkflow(Workflow):
             try:
                 if on_progress is not None:
                     raw_response = await agent.respond_stream(
-                        input_msg, on_chunk=make_chunk_callback(on_progress, agent_name)
+                        input_msg,
+                        protocol_override=PIPELINE_PROTOCOL,
+                        on_chunk=make_chunk_callback(on_progress, agent_name),
                     )
                 else:
-                    raw_response = await agent.respond(input_msg)
+                    raw_response = await agent.respond(
+                        input_msg, protocol_override=PIPELINE_PROTOCOL
+                    )
             except LLMError as e:
                 logger.warning(f"Agent '{agent_name}' unavailable, skipping stage: {e}")
                 failed_stages.append(agent_name)

@@ -59,6 +59,24 @@ As a worker agent receiving a review, respond with:
 
 Always respond with valid JSON only. No text outside the JSON object."""
 
+PIPELINE_PROTOCOL = """You communicate using JSON. Always respond with a single JSON object.
+
+You are one stage in a pipeline. You receive the previous stage's output, apply
+your own rules to it, and pass the result on. You cannot delegate, review, or
+ask questions — there is no one to ask.
+
+Respond with:
+{
+  "action": "result",
+  "content": "<your output for the next stage>"
+}
+
+Put only your finished work in "content" — no commentary about the task, no
+reasoning, no mention of other agents.
+
+Always respond with valid JSON only. No text outside the JSON object."""
+
+
 COLLABORATIVE_PROTOCOL = """You communicate using JSON. Always respond with a single JSON object.
 
 When discussing a topic, share your perspective:
