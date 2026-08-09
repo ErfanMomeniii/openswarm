@@ -296,7 +296,7 @@ agents:
 | `model` | yes | — | LLM model name |
 | `host` | yes | — | API endpoint URL (OpenAI-compatible) |
 | `api_key` | yes | — | API key (supports `${ENV_VAR}` syntax) |
-| `max_tokens` | no | `4096` | Max tokens per response (≥ 1) |
+| `max_tokens` | no | `4096` | Max tokens per response (≥ 1) — see note below |
 | `temperature` | no | `0.7` | Sampling temperature (0.0–2.0) |
 | `max_history` | no | `40` | Max messages kept in agent history (≥ 1) |
 | `rules` | no | `[]` | Agent behavior rules |
@@ -309,6 +309,11 @@ api_key: ${DEEPSEEK_API_KEY}
 ```
 
 `${VAR}` with nothing set is an error with the exact `export` line you need. `${VAR:-fallback}` never fails.
+
+**Using a reasoning model?** Give it a generous `max_tokens`. Reasoning models spend
+tokens thinking before they answer, so a tight budget truncates the reply mid-thought and
+you get the model's scratch work instead of a result. OpenSwarm logs a warning when a
+response is cut off by `max_tokens` — if you see it, raise the value for that agent.
 
 **What models can I use?** Any model with an OpenAI-compatible API — Claude, GPT, DeepSeek, Mistral, Llama, local models via Ollama, or a self-hosted gateway. If [litellm](https://docs.litellm.ai/docs/providers) supports it, OpenSwarm supports it. If litellm can't infer the provider from a model name, prefix it with `openai/`.
 

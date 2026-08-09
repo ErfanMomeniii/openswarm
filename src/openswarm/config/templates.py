@@ -31,7 +31,7 @@ agents:
     model: deepseek-chat
     host: https://api.deepseek.com/v1
     api_key: ${{DEEPSEEK_API_KEY}}
-    max_tokens: 2048
+    max_tokens: 4096
     temperature: 0.3
     rules:
       - "Execute the task assigned by senior"
@@ -53,7 +53,7 @@ agents:
     model: deepseek-chat
     host: https://api.deepseek.com/v1
     api_key: ${{DEEPSEEK_API_KEY}}
-    max_tokens: 2048
+    max_tokens: 4096
     temperature: 0.8
     rules:
       - "Produce a complete first draft"
@@ -63,7 +63,7 @@ agents:
     model: deepseek-chat
     host: https://api.deepseek.com/v1
     api_key: ${{DEEPSEEK_API_KEY}}
-    max_tokens: 2048
+    max_tokens: 4096
     temperature: 0.4
     rules:
       - "Tighten structure and fix errors, keep the author's intent"
@@ -104,7 +104,7 @@ agents:
     model: deepseek-chat
     host: https://api.deepseek.com/v1
     api_key: ${{DEEPSEEK_API_KEY}}
-    max_tokens: 2048
+    max_tokens: 4096
     temperature: 0.5
     rules:
       - "Argue from data, API, and reliability concerns"
@@ -114,7 +114,7 @@ agents:
     model: deepseek-chat
     host: https://api.deepseek.com/v1
     api_key: ${{DEEPSEEK_API_KEY}}
-    max_tokens: 2048
+    max_tokens: 4096
     temperature: 0.5
     rules:
       - "Argue from UX, accessibility, and client performance concerns"
@@ -147,7 +147,7 @@ agents:
     model: ollama/qwen2.5-coder:7b
     host: ${{OLLAMA_HOST:-http://localhost:11434}}
     api_key: "not-needed"
-    max_tokens: 2048
+    max_tokens: 4096
     temperature: 0.3
     rules:
       - "Execute the task assigned by lead"
