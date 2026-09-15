@@ -293,3 +293,133 @@ def test_history_file_lands_in_the_config_dir(tmp_path, monkeypatch):
 
     assert history is not None
     assert (tmp_path / "cfg").is_dir()
+
+
+# --- @file attachment, !shell, /model, /retry ---
+
+
+def test_file_mention_inlines_content(tmp_path, monkeypatch):
+    """Agents have no filesystem, so a bare path tells them nothing."""
+    from openswarm.cli.interactive import expand_file_mentions
+
+    target = tmp_path / "notes.md"
+    target.write_text("SECRET_MARKER content")
+    monkeypatch.chdir(tmp_path)
+
+    expanded, attached = expand_file_mentions("summarise @notes.md please")
+
+    assert "SECRET_MARKER content" in expanded
+    assert attached == ["notes.md"]
+    assert "@notes.md" not in expanded
+
+
+def test_unresolvable_mention_is_left_alone():
+    from openswarm.cli.interactive import expand_file_mentions
+
+    expanded, attached = expand_file_mentions("ask @someone about @nope.txt")
+
+    assert expanded == "ask @someone about @nope.txt"
+    assert attached == []
+
+
+def test_large_attachment_is_truncated(tmp_path, monkeypatch):
+    from openswarm.cli.interactive import MAX_ATTACHED_CHARS, expand_file_mentions
+
+    big = tmp_path / "big.log"
+    big.write_text("x" * (MAX_ATTACHED_CHARS + 5_000))
+    monkeypatch.chdir(tmp_path)
+
+    expanded, attached = expand_file_mentions("@big.log")
+
+    assert "[truncated]" in expanded
+    assert len(expanded) < MAX_ATTACHED_CHARS + 500
+    assert attached == ["big.log"]
+
+
+def test_model_swap_updates_config_and_client(team_config: TeamConfig):
+    """/team must not report a model the agent is no longer using."""
+    from openswarm.cli.interactive import _handle_slash_command
+
+    team = Team(team_config)
+    orch = Orchestrator(team, HierarchicalWorkflow())
+
+    _handle_slash_command("/model worker new-model-x", team, orch, [False])
+
+    assert team.config.get_agent("worker").model == "new-model-x"
+    assert team.agents["worker"].llm.model == "new-model-x"
+
+
+def test_model_swap_rejects_unknown_agent(team_config: TeamConfig):
+    from openswarm.cli.interactive import _handle_slash_command
+
+    team = Team(team_config)
+    orch = Orchestrator(team, HierarchicalWorkflow())
+
+    _handle_slash_command("/model ghost some-model", team, orch, [False])
+
+    assert all(a.model != "some-model" for a in team.config.agents)
+
+
+def test_model_swap_needs_two_arguments(team_config: TeamConfig):
+    from openswarm.cli.interactive import _handle_slash_command
+
+    team = Team(team_config)
+    orch = Orchestrator(team, HierarchicalWorkflow())
+    assert _handle_slash_command("/model worker", team, orch, [False]) is False
+
+
+def test_shell_escape_runs_the_command(capsys):
+    from openswarm.cli.interactive import _run_shell
+
+    _run_shell("echo REPL_SHELL_OK")
+    assert "REPL_SHELL_OK" in capsys.readouterr().out
+
+
+def test_shell_escape_reports_failure(capsys):
+    from openswarm.cli.interactive import _run_shell
+
+    _run_shell("exit 3")
+    assert "exit 3" in capsys.readouterr().out
+
+
+# --- streaming shows the answer, not the protocol envelope ---
+
+
+def _stream(chunks: list[str]) -> str:
+    from openswarm.cli.interactive import ContentStream
+
+    f = ContentStream()
+    return "".join(f.feed(c) for c in chunks)
+
+
+def test_stream_emits_only_the_content_field():
+    out = _stream(['{"action": "res', 'ult", "con', 'tent": "hello ', 'world"}'])
+    assert out == "hello world"
+
+
+def test_stream_decodes_escapes_as_they_arrive():
+    out = _stream(['{"action":"respond","content":"line1\\nline2\\n', '```py\\ncode()\\n```"}'])
+    assert out == "line1\nline2\n```py\ncode()\n```"
+    assert "\\n" not in out
+
+
+def test_stream_stops_at_the_closing_quote():
+    out = _stream(['{"action":"respond","content":"done","to":"lead"}'])
+    assert out == "done"
+
+
+def test_stream_passes_prose_through():
+    """Models that ignore the protocol should still be watchable."""
+    out = _stream(["The bug is ", "an off-by-one."])
+    assert out == "The bug is an off-by-one."
+
+
+def test_stream_hides_an_envelope_with_no_content():
+    """A delegate envelope carries no user-facing text — show nothing."""
+    out = _stream(['{"action": "delegate", "to": "worker", "task": "do it"}'])
+    assert out == ""
+
+
+def test_stream_handles_escaped_quotes_in_content():
+    out = _stream(['{"content": "say \\"hi\\" now"}'])
+    assert out == 'say "hi" now'

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import subprocess
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 from rich.markdown import Markdown
@@ -19,6 +22,7 @@ from openswarm.config.discovery import get_config_dir
 from openswarm.core.orchestrator import Orchestrator
 from openswarm.core.team import Team
 from openswarm.core.usage import RunUsage
+from openswarm.llm.client import LLMClient
 from openswarm.workflow import get_workflow
 
 console = Console()
@@ -31,9 +35,16 @@ SLASH_COMMANDS = {
     "/usage": "Show token usage and cost for this session",
     "/save": "Save the last result: /save notes.md",
     "/copy": "Print the last result unrendered, for copying",
+    "/retry": "Run the previous task again",
+    "/model": "Swap an agent's model: /model junior deepseek-chat",
     "/clear": "Clear message history",
     "/stream": "Toggle streaming output on/off",
 }
+
+#: Attached files are truncated so one `@big.log` cannot blow the context window.
+MAX_ATTACHED_CHARS = 20_000
+
+FILE_MENTION = re.compile(r"@([\w./~+-]+)")
 
 
 class SlashCompleter(Completer):
@@ -56,6 +67,70 @@ def _history_file() -> FileHistory | None:
         return FileHistory(str(path / "history"))
     except OSError:
         return None  # read-only home: history is a nicety, not a reason to fail
+
+
+def expand_file_mentions(text: str) -> tuple[str, list[str]]:
+    """Inline the contents of any `@path` mention.
+
+    Agents have no filesystem access, so a path alone means nothing to them.
+    Mentions that do not resolve to a readable file are left as typed.
+    """
+    attached: list[str] = []
+
+    def replace(match: re.Match) -> str:
+        path = Path(match.group(1)).expanduser()
+        try:
+            if not path.is_file():
+                return match.group(0)
+            content = path.read_text(errors="replace")
+        except OSError:
+            return match.group(0)
+
+        if len(content) > MAX_ATTACHED_CHARS:
+            content = content[:MAX_ATTACHED_CHARS] + "\n... [truncated]"
+        attached.append(str(path))
+        return f"\n\n--- {path} ---\n{content}\n--- end of {path} ---\n"
+
+    return FILE_MENTION.sub(replace, text), attached
+
+
+def _run_shell(command: str) -> None:
+    """Run a shell command without leaving the REPL, like `!` in Claude Code."""
+    if not command:
+        console.print("[red]Usage: !<command>[/red]\n")
+        return
+    try:
+        # The user typed this for their own shell; that is the entire point.
+        done = subprocess.run(command, shell=True, capture_output=True, text=True)
+    except OSError as e:
+        console.print(f"[red]Could not run: {e}[/red]\n")
+        return
+    if done.stdout:
+        print(done.stdout, end="")
+    if done.stderr:
+        console.print(f"[red]{done.stderr}[/red]", end="")
+    if done.returncode:
+        console.print(f"[dim]exit {done.returncode}[/dim]", highlight=False)
+    console.print()
+
+
+def _key_bindings() -> KeyBindings:
+    """Enter sends; a trailing backslash or Esc+Enter continues on a new line."""
+    kb = KeyBindings()
+
+    @kb.add("enter")
+    def _submit_or_continue(event) -> None:
+        buffer = event.current_buffer
+        if buffer.text.rstrip().endswith("\\"):
+            buffer.insert_text("\n")
+        else:
+            buffer.validate_and_handle()
+
+    @kb.add("escape", "enter")
+    def _newline(event) -> None:
+        event.current_buffer.insert_text("\n")
+
+    return kb
 
 
 def _render_result(text: str) -> None:
@@ -152,6 +227,25 @@ def _handle_slash_command(
             console.print()
         return False
 
+    if cmd == "/model":
+        parts = arg.split()
+        if len(parts) != 2:
+            console.print("[red]Usage: /model <agent> <model>[/red]\n")
+            return False
+        name, new_model = parts
+        if name not in team.agents:
+            console.print(
+                f"[red]No agent '{name}'. Team has: {', '.join(team.agent_names)}[/red]\n"
+            )
+            return False
+        old = team.config.get_agent(name)
+        updated = old.model_copy(update={"model": new_model})
+        # Config and live client both, or /team would report a stale model.
+        team.config.agents[team.config.agents.index(old)] = updated
+        team.agents[name].llm = LLMClient(updated)
+        console.print(f"[green]{name}: {old.model} → {new_model}[/green]\n")
+        return False
+
     if cmd == "/clear":
         orchestrator.message_log.clear()
         for agent in orchestrator.team.agents.values():
@@ -170,17 +264,80 @@ def _handle_slash_command(
     return False
 
 
+class ContentStream:
+    """Turn a stream of protocol JSON into just the text the user cares about.
+
+    Agents answer with `{"action": ..., "content": "..."}`, so streaming raw
+    tokens shows the envelope and the escape sequences. This emits only the
+    `content` string, decoded. A model that answers in prose instead of JSON is
+    passed through untouched; if neither shape appears, nothing is shown and the
+    rendered result still arrives at the end.
+    """
+
+    def __init__(self) -> None:
+        self._pending = ""
+        self._mode = "undecided"
+        self._escaped = False
+
+    def feed(self, chunk: str) -> str:
+        if self._mode == "done":
+            return ""
+        if self._mode == "prose":
+            return chunk
+
+        self._pending += chunk
+
+        if self._mode == "undecided":
+            stripped = self._pending.lstrip()
+            if not stripped:
+                return ""
+            if stripped[0] not in "{`":
+                self._mode = "prose"
+                out, self._pending = self._pending, ""
+                return out
+            self._mode = "seeking"
+
+        if self._mode == "seeking":
+            match = re.search(r'"content"\s*:\s*"', self._pending)
+            if not match:
+                return ""
+            self._pending = self._pending[match.end() :]
+            self._mode = "emitting"
+
+        return self._drain()
+
+    def _drain(self) -> str:
+        out = []
+        for char in self._pending:
+            if self._escaped:
+                out.append({"n": "\n", "t": "\t", "r": ""}.get(char, char))
+                self._escaped = False
+            elif char == "\\":
+                self._escaped = True
+            elif char == '"':
+                self._mode = "done"
+                break
+            else:
+                out.append(char)
+        self._pending = ""
+        return "".join(out)
+
+
 def _make_stream_printer() -> callable:
-    """Create a progress callback that prints streaming tokens with agent labels."""
+    """Create a progress callback that prints an agent's answer as it arrives."""
     current_agent: list[str] = [""]
+    filters: dict[str, ContentStream] = {}
 
     def on_progress(agent_name: str, chunk: str) -> None:
+        text = filters.setdefault(agent_name, ContentStream()).feed(chunk)
+        if not text:
+            return
         if agent_name != current_agent[0]:
             if current_agent[0]:
                 console.print()
-            console.print(f"[bold cyan][{agent_name}][/bold cyan] ", end="")
+            console.print(f"[bold cyan]{agent_name}[/bold cyan] ", end="")
             current_agent[0] = agent_name
-        console.print(chunk, end="", highlight=False)
+        console.print(text, end="", highlight=False, markup=False)
 
     return on_progress
 
@@ -193,12 +350,15 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
     stream_state: list[bool] = [True]  # watching it work beats staring at a spinner
     session_usage = RunUsage()
     last_result: list[str] = [""]
+    last_task: list[str] = [""]
 
     console.print(
         Panel(
             f"[bold]{team.config.name}[/bold] — {team.config.goal}\n"
             f"[dim]{team.config.workflow.type} · {', '.join(team.agent_names)}[/dim]\n\n"
-            "Type a task, or [bold cyan]/help[/bold cyan] for commands.",
+            "Type a task, [bold cyan]@file[/bold cyan] to attach a file, "
+            "[bold cyan]!cmd[/bold cyan] for a shell command,\n"
+            "or [bold cyan]/help[/bold cyan] for commands.",
             title="OpenSwarm",
             border_style="blue",
         )
@@ -215,6 +375,9 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
         auto_suggest=AutoSuggestFromHistory(),
         history=_history_file(),
         bottom_toolbar=toolbar,
+        multiline=True,
+        key_bindings=_key_bindings(),
+        prompt_continuation="     | ",
     )
 
     while True:
@@ -229,6 +392,20 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
         if not text:
             continue
 
+        # Continuation backslashes are input syntax, not part of the task.
+        text = re.sub(r"\\\s*\n", "\n", text).strip()
+
+        if text.startswith("!"):
+            _run_shell(text[1:].strip())
+            continue
+
+        if text == "/retry":
+            if not last_task[0]:
+                console.print("[dim]Nothing to retry yet.[/dim]\n")
+                continue
+            text = last_task[0]
+            console.print(f"[dim]retrying: {text.splitlines()[0][:70]}[/dim]")
+
         if text.startswith("/"):
             should_exit = _handle_slash_command(
                 text, team, orchestrator, stream_state, session_usage, last_result
@@ -237,6 +414,11 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
                 console.print("[dim]Bye.[/dim]")
                 break
             continue
+
+        last_task[0] = text
+        text, attached = expand_file_mentions(text)
+        if attached:
+            console.print(f"[dim]attached: {', '.join(attached)}[/dim]")
 
         on_progress = _make_stream_printer() if stream_state[0] else None
         show_status = not stream_state[0] and not verbose

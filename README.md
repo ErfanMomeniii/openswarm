@@ -230,11 +230,22 @@ openswarm interactive              # auto-discovers team.yaml
 openswarm interactive -t backend -v
 ```
 
-Results render as markdown, so code blocks come back syntax-highlighted instead of
-as a wall of text. Streaming is on by default — you watch the agents work rather
-than waiting at a spinner. Prompt history persists between sessions (up-arrow), with
-ghost-text suggestions from what you typed before, and `/` tab-completes with
-descriptions. A status bar shows the team, streaming state, and running token/cost total.
+```
+swarm> What is the bug in @buggy.py? One sentence.
+attached: buggy.py
+senior The bug is that the function is named 'add' but returns a - b instead of a + b.
+```
+
+- **Results render as markdown** — code blocks come back syntax-highlighted.
+- **Streaming is on by default**, and shows only the agent's answer; the JSON
+  protocol the agents use between themselves stays out of your way.
+- **`@file` attaches a file** to your task. Agents have no filesystem access, so the
+  contents are inlined into the prompt (truncated past 20k characters).
+- **`!command`** runs a shell command without leaving the REPL — handy for running the
+  tests your team just wrote.
+- **Multi-line input**: end a line with `\` or press Esc+Enter to continue.
+- **History persists** between sessions (up-arrow), with ghost-text suggestions, and
+  `/` tab-completes with descriptions. A status bar tracks tokens and cost.
 
 | Command | Does |
 |---------|------|
@@ -244,11 +255,16 @@ descriptions. A status bar shows the team, streaming state, and running token/co
 | `/usage` | Full token and cost table for the session |
 | `/save FILE` | Write the last result to a file |
 | `/copy` | Print the last result unrendered, for pasting |
+| `/retry` | Run the previous task again |
+| `/model AGENT MODEL` | Swap one agent's model mid-session |
 | `/clear` | Clear history (messages and agent memory) |
 | `/stream` | Toggle streaming |
 | `/quit` | Exit (`/exit`, `/q` also work) |
 
 Ctrl+C cancels the current task without exiting; Ctrl+D exits.
+
+> `!command` runs in your own shell with your own permissions, exactly as typed. It is
+> a convenience for trusted local commands, not a sandbox.
 
 ### Config discovery
 

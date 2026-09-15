@@ -12,9 +12,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   shows command descriptions, and a status bar tracks tokens and cost. The usage table
   no longer prints after every turn — a one-line summary does, and `/usage` shows the
   full table.
+- Streamed output shows only the agent's answer. Previously the raw inter-agent JSON
+  protocol scrolled past, envelope and escape sequences included.
 
 ### Added
-- `/copy` in the REPL prints the last result unrendered, for pasting elsewhere.
+- `@file` in a REPL task inlines that file's contents, so agents (which have no
+  filesystem access) can actually see the code you are asking about. Capped at 20k
+  characters per file.
+- `!command` runs a shell command from the REPL without leaving the session.
+- Multi-line input: a trailing `\` or Esc+Enter continues on the next line.
+- `/model AGENT MODEL` swaps one agent's model mid-session, for trying a cheaper model
+  without editing YAML and restarting.
+- `/retry` re-runs the previous task.
+- `/copy` prints the last result unrendered, for pasting elsewhere.
 
 ## [1.2.0]
 
