@@ -224,3 +224,72 @@ def test_make_message_printer():
     cb = make_message_printer()
     assert cb is not None
     assert callable(cb)
+
+
+# --- REPL polish: completion, markdown rendering, persistent history ---
+
+
+def test_slash_completer_offers_commands_with_descriptions():
+    from prompt_toolkit.document import Document
+
+    from openswarm.cli.interactive import SLASH_COMMANDS, SlashCompleter
+
+    items = list(SlashCompleter().get_completions(Document("/s"), None))
+    names = [c.text for c in items]
+
+    assert "/save" in names and "/stream" in names
+    assert "/help" not in names  # does not start with "/s"
+    assert all(c.display_meta_text == SLASH_COMMANDS[c.text] for c in items)
+
+
+def test_slash_completer_silent_once_an_argument_is_typed():
+    from prompt_toolkit.document import Document
+
+    from openswarm.cli.interactive import SlashCompleter
+
+    assert list(SlashCompleter().get_completions(Document("/save out.md"), None)) == []
+    assert list(SlashCompleter().get_completions(Document("write a function"), None)) == []
+
+
+def test_result_renders_code_blocks_as_markdown(capsys):
+    import re
+
+    from openswarm.cli.interactive import _render_result
+
+    _render_result("Here:\n\n```python\ndef f():\n    return 1\n```\n")
+    # Syntax highlighting injects ANSI codes between tokens; compare on plain text.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
+
+    assert "```" not in plain  # fences consumed by the markdown renderer
+    assert "def" in plain and "return 1" in plain
+
+
+def test_copy_prints_the_raw_result(team_config: TeamConfig, capsys):
+    """Rendered output is nice to read but bad to paste; /copy gives the original."""
+    from openswarm.cli.interactive import _handle_slash_command
+
+    team = Team(team_config)
+    orch = Orchestrator(team, HierarchicalWorkflow())
+    raw = "```python\nx = 1\n```"
+
+    _handle_slash_command("/copy", team, orch, [False], None, [raw])
+    assert raw in capsys.readouterr().out
+
+
+def test_usage_line_is_one_line():
+    from openswarm.cli.interactive import _usage_line
+    from openswarm.core.usage import RunUsage, UsageStats
+
+    line = _usage_line(RunUsage(entries=[UsageStats("a", "m", 10, 5)]))
+    assert "\n" not in line
+    assert "15 tokens" in line
+
+
+def test_history_file_lands_in_the_config_dir(tmp_path, monkeypatch):
+    from openswarm.cli.interactive import _history_file
+
+    monkeypatch.setenv("OPENSWARM_CONFIG_DIR", str(tmp_path / "cfg"))
+    history = _history_file()
+
+    assert history is not None
+    assert (tmp_path / "cfg").is_dir()

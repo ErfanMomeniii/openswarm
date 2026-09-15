@@ -6,12 +6,16 @@ import asyncio
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.history import FileHistory
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 
 from openswarm.cli.utils import make_message_printer, make_status_updater, print_usage_table
+from openswarm.config.discovery import get_config_dir
 from openswarm.core.orchestrator import Orchestrator
 from openswarm.core.team import Team
 from openswarm.core.usage import RunUsage
@@ -26,9 +30,47 @@ SLASH_COMMANDS = {
     "/history": "Show message history",
     "/usage": "Show token usage and cost for this session",
     "/save": "Save the last result: /save notes.md",
+    "/copy": "Print the last result unrendered, for copying",
     "/clear": "Clear message history",
     "/stream": "Toggle streaming output on/off",
 }
+
+
+class SlashCompleter(Completer):
+    """Complete slash commands, showing each description alongside."""
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor.lstrip()
+        if not text.startswith("/") or " " in text:
+            return
+        for name, desc in SLASH_COMMANDS.items():
+            if name.startswith(text):
+                yield Completion(name, start_position=-len(text), display_meta=desc)
+
+
+def _history_file() -> FileHistory | None:
+    """Persist prompt history across sessions, as any decent REPL does."""
+    try:
+        path = get_config_dir()
+        path.mkdir(parents=True, exist_ok=True)
+        return FileHistory(str(path / "history"))
+    except OSError:
+        return None  # read-only home: history is a nicety, not a reason to fail
+
+
+def _render_result(text: str) -> None:
+    """Render a result as markdown so code blocks stay readable.
+
+    Agents answer with fenced code most of the time; printing raw loses the
+    highlighting and the structure. `/copy` prints the unrendered text.
+    """
+    console.print(Panel(Markdown(text), title="Result", border_style="green"))
+
+
+def _usage_line(usage: RunUsage) -> str:
+    """One-line usage summary; the full table is on /usage."""
+    cost = f" · ${usage.total_cost:.4f}" if usage.total_cost is not None else ""
+    return f"[dim]{usage.total_tokens} tokens{cost}[/dim]"
 
 
 def _handle_slash_command(
@@ -50,9 +92,10 @@ def _handle_slash_command(
 
     if cmd == "/help":
         console.print()
+        width = max(len(name) for name in SLASH_COMMANDS)
         for name, desc in SLASH_COMMANDS.items():
-            console.print(f"  [bold]{name}[/bold] — {desc}")
-        console.print()
+            console.print(f"  [bold cyan]{name:<{width}}[/bold cyan]  [dim]{desc}[/dim]")
+        console.print("\n[dim]Ctrl+C cancels a running task · Ctrl+D exits[/dim]\n")
         return False
 
     if cmd == "/usage":
@@ -75,6 +118,15 @@ def _handle_slash_command(
             console.print(f"[green]Saved to {arg}[/green]\n")
         except OSError as e:
             console.print(f"[red]Could not write {arg}: {e}[/red]\n")
+        return False
+
+    if cmd == "/copy":
+        if not last_result or not last_result[0]:
+            console.print("[dim]Nothing to copy yet.[/dim]\n")
+        else:
+            # Unrendered and unpanelled, so it can be selected and pasted.
+            print(last_result[0])
+            console.print()
         return False
 
     if cmd == "/team":
@@ -138,22 +190,31 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
     workflow = get_workflow(team.config.workflow.type)
     orchestrator = Orchestrator(team, workflow)
     on_message = make_message_printer() if verbose else None
-    stream_state: list[bool] = [False]
+    stream_state: list[bool] = [True]  # watching it work beats staring at a spinner
     session_usage = RunUsage()
     last_result: list[str] = [""]
 
     console.print(
         Panel(
-            f"Team: [bold]{team.config.name}[/bold] — {team.config.goal}\n"
-            f"Agents: {', '.join(team.agent_names)}\n"
-            "Type a task, or /help for commands.",
-            title="OpenSwarm Interactive",
+            f"[bold]{team.config.name}[/bold] — {team.config.goal}\n"
+            f"[dim]{team.config.workflow.type} · {', '.join(team.agent_names)}[/dim]\n\n"
+            "Type a task, or [bold cyan]/help[/bold cyan] for commands.",
+            title="OpenSwarm",
             border_style="blue",
         )
     )
 
+    def toolbar() -> str:
+        cost = f"  ${session_usage.total_cost:.4f}" if session_usage.total_cost else ""
+        stream = "stream on" if stream_state[0] else "stream off"
+        return f" {team.config.name}  {stream}  {session_usage.total_tokens} tokens{cost}"
+
     session: PromptSession[str] = PromptSession(
-        "swarm> ", completer=WordCompleter(list(SLASH_COMMANDS))
+        "swarm> ",
+        completer=SlashCompleter(),
+        auto_suggest=AutoSuggestFromHistory(),
+        history=_history_file(),
+        bottom_toolbar=toolbar,
     )
 
     while True:
@@ -182,12 +243,11 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
 
         try:
             if show_status:
-                with console.status("[bold yellow]Starting...[/bold yellow]", spinner="dots") as st:
+                with console.status("[bold yellow]Working...[/bold yellow]", spinner="dots") as st:
                     run_result = asyncio.run(
                         orchestrator.run(text, on_message=make_status_updater(st))
                     )
             else:
-                console.print("[bold yellow]Running...[/bold yellow]\n")
                 run_result = asyncio.run(
                     orchestrator.run(text, on_message=on_message, on_progress=on_progress)
                 )
@@ -195,8 +255,8 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
                 console.print("\n")
             last_result[0] = run_result.result
             session_usage.entries.extend(run_result.usage.entries)
-            console.print(Panel(run_result.result, title="Result", border_style="green"))
-            print_usage_table(run_result.usage)
+            _render_result(run_result.result)
+            console.print(_usage_line(run_result.usage))
         except KeyboardInterrupt:
             console.print("\n[yellow]Task cancelled.[/yellow]")
         except Exception as e:
