@@ -3,6 +3,19 @@
 All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Interactive mode reworked to feel like a modern coding REPL: results render as
+  markdown so code blocks are syntax-highlighted, streaming is on by default,
+  prompt history persists across sessions with ghost-text suggestions, `/` completion
+  shows command descriptions, and a status bar tracks tokens and cost. The usage table
+  no longer prints after every turn — a one-line summary does, and `/usage` shows the
+  full table.
+
+### Added
+- `/copy` in the REPL prints the last result unrendered, for pasting elsewhere.
+
 ## [1.2.0]
 
 Onboarding release — getting from install to a working team no longer requires copying YAML out of the README.

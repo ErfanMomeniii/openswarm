@@ -221,27 +221,34 @@ With no `-c`/`-t`, OpenSwarm uses the single discoverable team config. If severa
 openswarm run "Summarize the auth flow" -q > auth-notes.md
 ```
 
-### Interactive Mode (experimental)
+### Interactive Mode
 
-Chat with your team in a persistent session. We're actively improving this.
+A REPL for working with your team across several turns.
 
 ```bash
 openswarm interactive              # auto-discovers team.yaml
 openswarm interactive -t backend -v
 ```
 
+Results render as markdown, so code blocks come back syntax-highlighted instead of
+as a wall of text. Streaming is on by default — you watch the agents work rather
+than waiting at a spinner. Prompt history persists between sessions (up-arrow), with
+ghost-text suggestions from what you typed before, and `/` tab-completes with
+descriptions. A status bar shows the team, streaming state, and running token/cost total.
+
 | Command | Does |
 |---------|------|
 | `/help` | List commands |
 | `/team` | Show the current team |
 | `/history` | Show message history |
-| `/usage` | Token usage and cost for the whole session |
+| `/usage` | Full token and cost table for the session |
 | `/save FILE` | Write the last result to a file |
+| `/copy` | Print the last result unrendered, for pasting |
 | `/clear` | Clear history (messages and agent memory) |
 | `/stream` | Toggle streaming |
 | `/quit` | Exit (`/exit`, `/q` also work) |
 
-Ctrl+C cancels the current task without exiting.
+Ctrl+C cancels the current task without exiting; Ctrl+D exits.
 
 ### Config discovery
 
