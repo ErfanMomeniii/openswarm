@@ -487,3 +487,9 @@ def test_announcer_names_the_working_agent():
     t.hide()
     announce(Message(from_agent="lead", to_agent="user", type=MessageType.RESULT, content="done"))
     assert t._status is None  # nothing is "thinking" when the answer is for the user
+
+
+def test_stream_hides_xml_tool_calls():
+    """The approval prompt renders these; they should not scroll past as markup."""
+    out = _stream(['<minimax:tool_call>\n<invoke name="write_file">\n', "<parameter"])
+    assert out == ""

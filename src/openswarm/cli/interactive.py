@@ -10,12 +10,12 @@ from pathlib import Path
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 from rich.markdown import Markdown
-from rich.panel import Panel
 
 from openswarm.cli.utils import make_message_printer, make_status_updater, print_usage_table
 from openswarm.config.discovery import get_config_dir
@@ -141,7 +141,7 @@ def _make_announcer(thinking: Thinking, on_message) -> callable:
 
     def announce(msg) -> None:
         if msg.to_agent not in ("user", "system"):
-            thinking.show(f"{msg.to_agent} is thinking...")
+            thinking.show(f"● {msg.to_agent} thinking...")
         if on_message is not None:
             on_message(msg)
 
@@ -151,10 +151,11 @@ def _make_announcer(thinking: Thinking, on_message) -> callable:
 def _render_result(text: str) -> None:
     """Render a result as markdown so code blocks stay readable.
 
-    Agents answer with fenced code most of the time; printing raw loses the
-    highlighting and the structure. `/copy` prints the unrendered text.
+    Deliberately unboxed: a border around every answer wastes width and makes a
+    session look like a form. `/copy` prints the unrendered text.
     """
-    console.print(Panel(Markdown(text), title="Result", border_style="green"))
+    console.print()
+    console.print(Markdown(text))
 
 
 def _usage_line(usage: RunUsage) -> str:
@@ -306,6 +307,11 @@ class ContentStream:
             stripped = self._pending.lstrip()
             if not stripped:
                 return ""
+            if stripped[0] == "<":
+                # A tool call in XML form: the approval prompt renders it
+                # properly, so it should not also scroll past as raw markup.
+                self._mode = "done"
+                return ""
             if stripped[0] not in "{`":
                 self._mode = "prose"
                 out, self._pending = self._pending, ""
@@ -374,7 +380,7 @@ def _make_stream_printer(thinking: Thinking | None = None) -> callable:
         if agent_name != current_agent[0]:
             if current_agent[0]:
                 console.print()
-            console.print(f"[bold cyan]{agent_name}[/bold cyan] ", end="")
+            console.print(f"[cyan]●[/cyan] [bold]{agent_name}[/bold] ", end="")
             current_agent[0] = agent_name
         console.print(text, end="", highlight=False, markup=False)
 
@@ -391,17 +397,10 @@ def run_interactive(team: Team, verbose: bool = False, on_tool=None) -> None:
     last_result: list[str] = [""]
     last_task: list[str] = [""]
 
-    console.print(
-        Panel(
-            f"[bold]{team.config.name}[/bold] — {team.config.goal}\n"
-            f"[dim]{team.config.workflow.type} · {', '.join(team.agent_names)}[/dim]\n\n"
-            "Type a task, [bold cyan]@file[/bold cyan] to attach a file, "
-            "[bold cyan]!cmd[/bold cyan] for a shell command,\n"
-            "or [bold cyan]/help[/bold cyan] for commands.",
-            title="OpenSwarm",
-            border_style="blue",
-        )
-    )
+    console.print()
+    console.print(f"[bold]OpenSwarm[/bold] [dim]·[/dim] [bold]{team.config.name}[/bold]")
+    console.print(f"[dim]{team.config.workflow.type} · {', '.join(team.agent_names)}[/dim]")
+    console.print("[dim]/help for commands · @file to attach · !cmd for shell[/dim]\n")
 
     def toolbar() -> str:
         cost = f"  ${session_usage.total_cost:.4f}" if session_usage.total_cost else ""
@@ -409,14 +408,14 @@ def run_interactive(team: Team, verbose: bool = False, on_tool=None) -> None:
         return f" {team.config.name}  {stream}  {session_usage.total_tokens} tokens{cost}"
 
     session: PromptSession[str] = PromptSession(
-        "swarm> ",
+        FormattedText([("ansicyan bold", "> ")]),
         completer=SlashCompleter(),
         auto_suggest=AutoSuggestFromHistory(),
         history=_history_file(),
         bottom_toolbar=toolbar,
         multiline=True,
         key_bindings=_key_bindings(),
-        prompt_continuation="     | ",
+        prompt_continuation="  ",
     )
 
     while True:
