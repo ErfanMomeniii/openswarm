@@ -239,6 +239,8 @@ senior The bug is that the function is named 'add' but returns a - b instead of 
 - **Results render as markdown** — code blocks come back syntax-highlighted.
 - **Streaming is on by default**, and shows only the agent's answer; the JSON
   protocol the agents use between themselves stays out of your way.
+- **`<agent> is thinking...`** animates while a model works, naming whoever has the
+  turn, and disappears the moment real output arrives.
 - **`@file` attaches a file** to your task. Agents have no filesystem access, so the
   contents are inlined into the prompt (truncated past 20k characters).
 - **`!command`** runs a shell command without leaving the REPL — handy for running the

@@ -14,6 +14,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   full table.
 - Streamed output shows only the agent's answer. Previously the raw inter-agent JSON
   protocol scrolled past, envelope and escape sequences included.
+- An animated `<agent> is thinking...` indicator fills the gap before visible output.
+  Reasoning models spend that time thinking and the protocol envelope is filtered out,
+  so the terminal used to sit blank.
 
 ### Added
 - `@file` in a REPL task inlines that file's contents, so agents (which have no
