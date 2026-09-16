@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -202,20 +203,79 @@ def choose(options: list[str], default: int = 0) -> int | None:
         return pool.submit(app.run).result()
 
 
-def _show_request(request: ToolRequest) -> None:
+MAX_PREVIEW_LINES = 30
+
+
+def _preview_write(request: ToolRequest, workspace: Path) -> None:
+    """Show a diff against the current file, or the content if it is new.
+
+    Showing only the proposed content hides what an overwrite removes, which is
+    the thing most worth seeing before saying yes.
+    """
+    target = workspace / request.path
+    try:
+        existing = target.read_text() if target.is_file() else None
+    except OSError:
+        existing = None
+
+    if existing is None:
+        lines = request.content.splitlines()
+        console.print(
+            f"[bold yellow]Create[/bold yellow] {request.path} [dim]({len(lines)} lines)[/dim]"
+        )
+        for line in lines[:MAX_PREVIEW_LINES]:
+            console.print(f"  [green]+[/green] {line}", highlight=False)
+        if len(lines) > MAX_PREVIEW_LINES:
+            console.print(f"  [dim]... {len(lines) - MAX_PREVIEW_LINES} more lines[/dim]")
+        return
+
+    if existing == request.content:
+        console.print(f"[bold yellow]Write[/bold yellow] {request.path} [dim](no changes)[/dim]")
+        return
+
+    diff = list(
+        difflib.unified_diff(existing.splitlines(), request.content.splitlines(), lineterm="", n=2)
+    )[2:]  # drop the ---/+++ header; the path is already on the line above
+    added = sum(1 for line in diff if line.startswith("+"))
+    removed = sum(1 for line in diff if line.startswith("-"))
+    console.print(
+        f"[bold yellow]Edit[/bold yellow] {request.path} "
+        f"[dim]([green]+{added}[/green] [red]-{removed}[/red])[/dim]"
+    )
+    for line in diff[:MAX_PREVIEW_LINES]:
+        if line.startswith("+"):
+            console.print(f"  [green]{line}[/green]", highlight=False)
+        elif line.startswith("-"):
+            console.print(f"  [red]{line}[/red]", highlight=False)
+        elif line.startswith("@@"):
+            console.print(f"  [dim cyan]{line}[/dim cyan]", highlight=False)
+        else:
+            console.print(f"  [dim]{line}[/dim]", highlight=False)
+    if len(diff) > MAX_PREVIEW_LINES:
+        console.print(f"  [dim]... {len(diff) - MAX_PREVIEW_LINES} more diff lines[/dim]")
+
+
+def _show_request(request: ToolRequest, workspace: Path) -> None:
     """Print what the agent wants to do, before asking."""
     console.print()
     if request.kind == "write_file":
-        console.print(f"[bold yellow]Write[/bold yellow] {request.path}")
-        lines = request.content.splitlines()
-        for line in lines[:20]:
-            console.print(f"  [dim]|[/dim] {line}")
-        if len(lines) > 20:
-            console.print(f"  [dim]| ... {len(lines) - 20} more lines[/dim]")
+        _preview_write(request, workspace)
     elif request.kind == "read_file":
         console.print(f"[bold yellow]Read[/bold yellow] {request.path}")
     else:
-        console.print(f"[bold yellow]Run[/bold yellow] {request.command}")
+        console.print(f"[bold yellow]Run[/bold yellow] {request.command}", highlight=False)
+        console.print(f"  [dim]in {workspace}[/dim]")
+
+
+def _show_outcome(outcome: str) -> None:
+    """Confirm what actually happened, so approval is not a leap of faith."""
+    first = outcome.splitlines()[0] if outcome else ""
+    if outcome.startswith("Failed") or outcome.startswith("Refused"):
+        console.print(f"  [red]{first}[/red]\n", highlight=False)
+        return
+    rest = len(outcome.splitlines()) - 1
+    more = f" [dim](+{rest} more lines)[/dim]" if rest > 0 else ""
+    console.print(f"  [green]done[/green] [dim]{first}[/dim]{more}\n", highlight=False)
 
 
 def make_tool_approver(workspace: Path, pause=None, chooser=None) -> Callable[[ToolRequest], str]:
@@ -233,7 +293,7 @@ def make_tool_approver(workspace: Path, pause=None, chooser=None) -> Callable[[T
         if request.kind in always_allowed:
             return execute_safely(request, workspace)
 
-        _show_request(request)
+        _show_request(request, workspace)
         options = [
             "Yes",
             f"Yes, and don't ask again for {request.kind} this session",
@@ -242,11 +302,12 @@ def make_tool_approver(workspace: Path, pause=None, chooser=None) -> Callable[[T
         ]
         choice = pick(options)
 
-        if choice == 0:
-            return execute_safely(request, workspace)
-        if choice == 1:
-            always_allowed.add(request.kind)
-            return execute_safely(request, workspace)
+        if choice in (0, 1):
+            if choice == 1:
+                always_allowed.add(request.kind)
+            outcome = execute_safely(request, workspace)
+            _show_outcome(outcome)
+            return outcome
         if choice == 2:
             feedback = console.input("[bold]What should it do instead?[/bold] ").strip()
             if feedback:

@@ -14,6 +14,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   full table.
 - Streamed output shows only the agent's answer. Previously the raw inter-agent JSON
   protocol scrolled past, envelope and escape sequences included.
+- Lighter session output: answers render as markdown inline rather than inside a border,
+  the banner is three dim lines instead of a panel, and a `●` marks whichever agent is
+  speaking. Approval prompts show a diff for edits, the directory for commands, and what
+  actually happened afterwards.
 - An animated `<agent> is thinking...` indicator fills the gap before visible output.
   Reasoning models spend that time thinking and the protocol envelope is filtered out,
   so the terminal used to sit blank.

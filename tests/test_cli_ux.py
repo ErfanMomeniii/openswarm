@@ -618,3 +618,84 @@ def test_feedback_prompt_works_inside_a_running_loop(tmp_path):
             return approve(ToolRequest(kind="write_file", path="a.py", content="x"))
 
     assert asyncio.run(refuse_mid_run()) == "Refused by the user: use pathlib"
+
+
+# --- approval preview ---
+
+
+def _plain(capsys) -> str:
+    import re
+
+    return re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
+
+
+def test_overwrite_shows_a_diff_including_deletions(tmp_path, capsys):
+    """Showing only the new content hides what an overwrite removes."""
+    from openswarm.cli.utils import _show_request
+    from openswarm.core.tools import ToolRequest
+
+    (tmp_path / "utils.py").write_text("def keep():\n    pass\n\n\ndef doomed():\n    pass\n")
+    new = "def keep():\n    pass\n"
+
+    _show_request(ToolRequest(kind="write_file", path="utils.py", content=new), tmp_path)
+    out = _plain(capsys)
+
+    assert "Edit utils.py" in out
+    assert "-def doomed():" in out  # the deletion is visible
+    assert "+2" not in out.split("\n")[1]  # nothing claimed as added
+
+
+def test_new_file_is_labelled_create_not_edit(tmp_path, capsys):
+    from openswarm.cli.utils import _show_request
+    from openswarm.core.tools import ToolRequest
+
+    _show_request(ToolRequest(kind="write_file", path="fresh.py", content="x = 1\n"), tmp_path)
+    out = _plain(capsys)
+
+    assert "Create fresh.py" in out
+    assert "Edit" not in out
+
+
+def test_identical_write_says_no_changes(tmp_path, capsys):
+    from openswarm.cli.utils import _show_request
+    from openswarm.core.tools import ToolRequest
+
+    (tmp_path / "same.py").write_text("x = 1\n")
+
+    _show_request(ToolRequest(kind="write_file", path="same.py", content="x = 1\n"), tmp_path)
+
+    assert "no changes" in _plain(capsys)
+
+
+def test_command_preview_names_the_directory(tmp_path, capsys):
+    """Where a command runs matters as much as what it runs."""
+    from openswarm.cli.utils import _show_request
+    from openswarm.core.tools import ToolRequest
+
+    _show_request(ToolRequest(kind="run_command", command="pytest -q"), tmp_path)
+    out = _plain(capsys)
+
+    assert "pytest -q" in out
+    # Rich wraps long paths, so compare with the line breaks removed.
+    assert str(tmp_path) in out.replace("\n", "")
+
+
+def test_outcome_is_reported_after_approval(tmp_path, capsys):
+    """Approving should not be a leap of faith — say what happened."""
+    from openswarm.cli.utils import make_tool_approver
+    from openswarm.core.tools import ToolRequest
+
+    approve = make_tool_approver(tmp_path, chooser=lambda options: 0)
+    approve(ToolRequest(kind="write_file", path="a.py", content="x = 1"))
+
+    assert "Wrote a.py" in _plain(capsys)
+
+
+def test_failed_outcome_is_reported(tmp_path, capsys):
+    from openswarm.cli.utils import make_tool_approver
+    from openswarm.core.tools import ToolRequest
+
+    approve = make_tool_approver(tmp_path, chooser=lambda options: 0)
+    approve(ToolRequest(kind="write_file", path="../escape.py", content="x"))
+
+    assert "escapes the workspace" in _plain(capsys)
