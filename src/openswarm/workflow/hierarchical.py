@@ -5,13 +5,16 @@ from __future__ import annotations
 import json
 import logging
 
+from openswarm.core.agent import COMMUNICATION_PROTOCOL
 from openswarm.core.message import Message, MessageType
 from openswarm.core.task import Task
 from openswarm.core.team import Team
+from openswarm.core.tools import TOOLS_PROTOCOL, parse_tool_request
 from openswarm.llm.client import LLMError
 from openswarm.workflow.base import (
     MessageCallback,
     ProgressCallback,
+    ToolCallback,
     Workflow,
     make_chunk_callback,
 )
@@ -34,6 +37,7 @@ class HierarchicalWorkflow(Workflow):
         message_log: list[Message],
         on_message: MessageCallback | None = None,
         on_progress: ProgressCallback | None = None,
+        on_tool: ToolCallback | None = None,
     ) -> str:
         def _log(msg: Message) -> None:
             message_log.append(msg)
@@ -42,6 +46,7 @@ class HierarchicalWorkflow(Workflow):
 
         lead = team.lead
         available_agents = [n for n in team.agent_names if n != lead.name]
+        protocol = COMMUNICATION_PROTOCOL + TOOLS_PROTOCOL if on_tool else None
 
         # Initial message to lead
         initial_msg = Message(
@@ -67,10 +72,13 @@ class HierarchicalWorkflow(Workflow):
                     raw_response = await target_agent.respond_stream(
                         current_msg,
                         is_lead=is_lead,
+                        protocol_override=protocol,
                         on_chunk=make_chunk_callback(on_progress, target_agent.name),
                     )
                 else:
-                    raw_response = await target_agent.respond(current_msg, is_lead=is_lead)
+                    raw_response = await target_agent.respond(
+                        current_msg, is_lead=is_lead, protocol_override=protocol
+                    )
             except LLMError as e:
                 # Without the lead there is nobody to route around the failure.
                 if is_lead:
@@ -121,6 +129,28 @@ class HierarchicalWorkflow(Workflow):
                 if action in ("result", "answer", "revision"):
                     last_work = (target_agent.name, candidate)
 
+            tool_request = parse_tool_request(parsed) if on_tool else None
+            if tool_request is not None:
+                outcome = on_tool(tool_request)
+                _log(
+                    Message(
+                        from_agent=target_agent.name,
+                        to_agent="system",
+                        type=MessageType.TASK,
+                        content=tool_request.describe(),
+                    )
+                )
+                # Answer goes back to whoever asked, so they can carry on.
+                result_msg = Message(
+                    from_agent="system",
+                    to_agent=target_agent.name,
+                    type=MessageType.RESULT,
+                    content=outcome,
+                )
+                _log(result_msg)
+                current_msg = result_msg
+                continue
+
             if action == "respond":
                 # Lead is done — return final answer
                 final_content = parsed.get("content", raw_response)
@@ -158,6 +188,14 @@ class HierarchicalWorkflow(Workflow):
                 # Lead asks worker a question
                 worker_name = parsed.get("to", "")
                 question_content = parsed.get("content", "")
+                if worker_name not in team.agents:
+                    # Usually "user". There is nobody to route to mid-run, so the
+                    # question becomes the answer rather than crashing the run.
+                    logger.info(f"Question addressed to '{worker_name}'; returning it to the user")
+                    final = question_content or raw_response
+                    task.complete(final)
+                    return final
+
                 question_msg = Message(
                     from_agent=lead.name,
                     to_agent=worker_name,

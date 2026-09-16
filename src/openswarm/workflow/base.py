@@ -8,9 +8,11 @@ from collections.abc import Callable
 from openswarm.core.message import Message
 from openswarm.core.task import Task
 from openswarm.core.team import Team
+from openswarm.core.tools import ToolRequest
 
 MessageCallback = Callable[[Message], None]
 ProgressCallback = Callable[[str, str], None]  # (agent_name, chunk)
+ToolCallback = Callable[["ToolRequest"], str]
 
 
 def make_chunk_callback(on_progress: ProgressCallback, agent_name: str) -> Callable[[str], None]:
@@ -38,6 +40,7 @@ class Workflow(ABC):
         message_log: list[Message],
         on_message: MessageCallback | None = None,
         on_progress: ProgressCallback | None = None,
+        on_tool: ToolCallback | None = None,
     ) -> str:
         """Run the workflow and return the final result string."""
         ...

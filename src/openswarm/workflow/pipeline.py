@@ -13,6 +13,7 @@ from openswarm.llm.client import LLMError
 from openswarm.workflow.base import (
     MessageCallback,
     ProgressCallback,
+    ToolCallback,
     Workflow,
     make_chunk_callback,
 )
@@ -52,6 +53,7 @@ class PipelineWorkflow(Workflow):
         message_log: list[Message],
         on_message: MessageCallback | None = None,
         on_progress: ProgressCallback | None = None,
+        on_tool: ToolCallback | None = None,
     ) -> str:
         def _log(msg: Message) -> None:
             message_log.append(msg)

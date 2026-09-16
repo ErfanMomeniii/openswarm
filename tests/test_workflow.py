@@ -405,3 +405,107 @@ def test_regex_fallback_unescapes_quotes():
 def test_strict_json_path_still_unescapes():
     content = _parse_agent_response('{"action": "respond", "content": "a\\nb"}')["content"]
     assert content == "a\nb"
+
+
+# --- workspace tools in the hierarchical loop ---
+
+
+@pytest.mark.asyncio
+async def test_agents_are_not_told_about_tools_by_default(team_config: TeamConfig):
+    """No handler means no tool protocol in the prompt — agents can't ask for what
+    they don't know exists."""
+    from openswarm.core.tools import TOOLS_PROTOCOL
+
+    team = Team(team_config)
+    prompts: list[str] = []
+
+    async def capture(self, message, is_lead=False, protocol_override=None, **kw):
+        prompts.append(protocol_override or "")
+        return make_llm_response({"action": "respond", "content": "done"})
+
+    with patch("openswarm.core.agent.Agent.respond", capture):
+        await HierarchicalWorkflow().execute(
+            Task(description="x"), team, max_rounds=3, message_log=[]
+        )
+
+    assert all(TOOLS_PROTOCOL not in p for p in prompts)
+
+
+@pytest.mark.asyncio
+async def test_tool_request_is_executed_and_answered(team_config: TeamConfig):
+    from openswarm.core.tools import TOOLS_PROTOCOL, ToolRequest
+
+    team = Team(team_config)
+    seen: list[ToolRequest] = []
+    prompts: list[str] = []
+
+    responses = iter(
+        [
+            make_llm_response({"action": "write_file", "path": "a.py", "content": "x = 1"}),
+            make_llm_response({"action": "respond", "content": "file written"}),
+        ]
+    )
+
+    async def capture(self, message, is_lead=False, protocol_override=None, **kw):
+        prompts.append(protocol_override or "")
+        return next(responses)
+
+    def handler(request: ToolRequest) -> str:
+        seen.append(request)
+        return "Wrote a.py (5 bytes)."
+
+    with patch("openswarm.core.agent.Agent.respond", capture):
+        result = await HierarchicalWorkflow().execute(
+            Task(description="x"), team, max_rounds=5, message_log=[], on_tool=handler
+        )
+
+    assert result == "file written"
+    assert [r.kind for r in seen] == ["write_file"]
+    assert any(TOOLS_PROTOCOL in p for p in prompts)
+
+
+@pytest.mark.asyncio
+async def test_refusal_goes_back_to_the_agent(team_config: TeamConfig):
+    """A denied action must not end the run — the agent gets told and continues."""
+    from openswarm.core.tools import ToolRequest
+
+    team = Team(team_config)
+    delivered: list[str] = []
+
+    responses = iter(
+        [
+            make_llm_response({"action": "run_command", "command": "rm -rf /"}),
+            make_llm_response({"action": "respond", "content": "understood, stopping"}),
+        ]
+    )
+
+    async def capture(self, message, is_lead=False, protocol_override=None, **kw):
+        delivered.append(message.content)
+        return next(responses)
+
+    def refuse(request: ToolRequest) -> str:
+        return f"Refused by the user: {request.describe()}"
+
+    with patch("openswarm.core.agent.Agent.respond", capture):
+        result = await HierarchicalWorkflow().execute(
+            Task(description="x"), team, max_rounds=5, message_log=[], on_tool=refuse
+        )
+
+    assert result == "understood, stopping"
+    assert any("Refused by the user" in d for d in delivered)
+
+
+@pytest.mark.asyncio
+async def test_question_to_the_user_is_returned_not_crashed(team_config: TeamConfig):
+    """A lead asking the user something used to raise ValueError and kill the run."""
+    team = Team(team_config)
+
+    mock = mock_acompletion(
+        make_llm_response({"action": "question", "to": "user", "content": "Which format?"})
+    )
+    with patch("openswarm.llm.client.litellm.acompletion", mock):
+        result = await HierarchicalWorkflow().execute(
+            Task(description="ambiguous"), team, max_rounds=5, message_log=[]
+        )
+
+    assert result == "Which format?"
