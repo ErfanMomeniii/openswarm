@@ -445,3 +445,136 @@ def test_quiet_piped_run_still_works_with_tools_on(isolated: Path):
 
     assert result.exit_code == 0
     assert result.output.strip() == "piped ok"
+
+
+# --- approval menu ---
+
+
+def test_menu_yes_executes(tmp_path):
+    from openswarm.cli.utils import make_tool_approver
+    from openswarm.core.tools import ToolRequest
+
+    approve = make_tool_approver(tmp_path, chooser=lambda options: 0)
+    result = approve(ToolRequest(kind="write_file", path="a.py", content="x = 1"))
+
+    assert "Wrote a.py" in result
+    assert (tmp_path / "a.py").read_text() == "x = 1"
+
+
+def test_menu_offers_four_options_including_dont_ask_again(tmp_path):
+    from openswarm.cli.utils import make_tool_approver
+    from openswarm.core.tools import ToolRequest
+
+    seen: list[list[str]] = []
+
+    def spy(options):
+        seen.append(options)
+        return 3
+
+    approve = make_tool_approver(tmp_path, chooser=spy)
+    approve(ToolRequest(kind="write_file", path="a.py", content="x"))
+
+    assert len(seen[0]) == 4
+    assert seen[0][0] == "Yes"
+    assert "don't ask again" in seen[0][1]
+    assert seen[0][-1] == "No"
+
+
+def test_dont_ask_again_stops_asking_for_that_action(tmp_path):
+    """Second write of the same kind must not reach the menu."""
+    from openswarm.cli.utils import make_tool_approver
+    from openswarm.core.tools import ToolRequest
+
+    asked: list[str] = []
+
+    def spy(options):
+        asked.append("asked")
+        return 1  # yes, and don't ask again
+
+    approve = make_tool_approver(tmp_path, chooser=spy)
+    approve(ToolRequest(kind="write_file", path="a.py", content="1"))
+    approve(ToolRequest(kind="write_file", path="b.py", content="2"))
+
+    assert len(asked) == 1
+    assert (tmp_path / "b.py").read_text() == "2"
+
+
+def test_dont_ask_again_is_scoped_to_one_action_kind(tmp_path):
+    """Approving writes forever must not silently approve shell commands."""
+    from openswarm.cli.utils import make_tool_approver
+    from openswarm.core.tools import ToolRequest
+
+    asked: list[str] = []
+
+    def spy(options):
+        asked.append("asked")
+        return 1
+
+    approve = make_tool_approver(tmp_path, chooser=spy)
+    approve(ToolRequest(kind="write_file", path="a.py", content="1"))
+    approve(ToolRequest(kind="run_command", command="echo hi"))
+
+    assert len(asked) == 2  # the command still had to ask
+
+
+def test_menu_no_with_feedback_reaches_the_agent(tmp_path):
+    from openswarm.cli.utils import make_tool_approver
+    from openswarm.core.tools import ToolRequest
+
+    approve = make_tool_approver(tmp_path, chooser=lambda options: 2)
+    with patch("openswarm.cli.utils.console.input", return_value="use pathlib instead"):
+        result = approve(ToolRequest(kind="write_file", path="a.py", content="x"))
+
+    assert result == "Refused by the user: use pathlib instead"
+    assert not (tmp_path / "a.py").exists()
+
+
+def test_menu_plain_no_refuses(tmp_path):
+    from openswarm.cli.utils import make_tool_approver
+    from openswarm.core.tools import ToolRequest
+
+    approve = make_tool_approver(tmp_path, chooser=lambda options: 3)
+    result = approve(ToolRequest(kind="write_file", path="a.py", content="x"))
+
+    assert "Refused by the user" in result
+    assert not (tmp_path / "a.py").exists()
+
+
+def test_cancelling_the_menu_counts_as_no(tmp_path):
+    """Esc and Ctrl-C return None; that must never be read as approval."""
+    from openswarm.cli.utils import make_tool_approver
+    from openswarm.core.tools import ToolRequest
+
+    approve = make_tool_approver(tmp_path, chooser=lambda options: None)
+    result = approve(ToolRequest(kind="run_command", command="rm -rf /"))
+
+    assert "Refused by the user" in result
+
+
+def _drive_menu(keys: str):
+    """Run the real menu against synthetic keystrokes."""
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from openswarm.cli.utils import choose
+
+    with create_pipe_input() as pipe:
+        pipe.send_text(keys)
+        with create_app_session(input=pipe, output=DummyOutput()):
+            return choose(["Yes", "Yes, always", "No with feedback", "No"])
+
+
+def test_arrow_keys_move_the_selection():
+    assert _drive_menu("\r") == 0  # Enter on the default
+    assert _drive_menu("\x1b[B\r") == 1  # Down, Enter
+    assert _drive_menu("\x1b[B\x1b[B\r") == 2  # Down, Down, Enter
+    assert _drive_menu("\x1b[A\r") == 3  # Up wraps to the last option
+
+
+def test_number_keys_pick_directly():
+    assert _drive_menu("3") == 2
+
+
+def test_ctrl_c_cancels_the_menu():
+    assert _drive_menu("\x03") is None

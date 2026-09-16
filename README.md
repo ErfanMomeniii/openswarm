@@ -21,10 +21,10 @@ agents:
 ```
 
 ```bash
-openswarm run "Build user auth API" --config team.yaml
+openswarm run "Build user auth API"
 ```
 
-Senior breaks it down, delegates to Junior, reviews results, assembles final output. One command.
+Senior breaks it down, delegates to Junior, reviews results, assembles the final output. One command.
 
 ## Install
 
@@ -32,293 +32,90 @@ Senior breaks it down, delegates to Junior, reviews results, assembles final out
 pipx install "openswarm-ai[mcp]"
 ```
 
-This installs everything: the `openswarm` CLI, the `openswarm-mcp` server, and all dependencies. The `[mcp]` extra adds MCP server support for IDE integration (Claude Code, Cursor, etc.).
+Installs the `openswarm` CLI and the `openswarm-mcp` server. [Get pipx](https://pipx.pypa.io/stable/how-to/install-pipx/) if you don't have it.
 
-> **Why pipx?** It installs OpenSwarm globally in an isolated environment — available from any project, no venv conflicts. [Install pipx](https://pipx.pypa.io/stable/how-to/install-pipx/) if you don't have it. Or use `brew install pipx` on macOS.
-
-## Get Started
-
-### 1. Scaffold a team
+## Get started
 
 ```bash
 cd your-project
-openswarm init            # writes team.yaml — pick a layout when prompted
-openswarm doctor          # verifies config + API keys before you spend anything
+openswarm init      # writes team.yaml — pick a layout when prompted
+openswarm doctor    # checks config, keys, and providers before you spend anything
+openswarm run "Add a health check endpoint"
 ```
 
-`openswarm init` templates:
+`init` templates: `hierarchical` (lead + worker), `pipeline` (A → B → C), `collaborative` (discuss → consensus), and `local` (two Ollama models, no API keys). See them with `openswarm init --list-templates`.
 
-| Template | Layout |
-|----------|--------|
-| `hierarchical` | Senior lead delegates to a cheap junior, then reviews (default) |
-| `pipeline` | writer → editor → reviewer, each transforms the previous output |
-| `collaborative` | Agents discuss in rounds until consensus, moderator synthesizes |
-| `local` | Two Ollama models — no API keys needed |
+## Use it from your IDE
 
 ```bash
-openswarm init --list-templates          # see them all
-openswarm init -T local                  # non-interactive
-openswarm init --global --name backend   # install to ~/.openswarm/teams/ for all projects
+claude mcp add openswarm -- openswarm-mcp     # Claude Code
 ```
 
-The generated `team.yaml` sits in your project root — like a `CLAUDE.md`, but for your agent team. Edit models and rules to taste.
+Drop a `team.yaml` in your project and your IDE delegates coding tasks to the team automatically. If a task is outside the team's scope, the lead says so and your IDE handles it directly.
 
-### 2. Register with your IDE (one-time)
+<details>
+<summary>Cursor, Windsurf, Copilot, OpenCode</summary>
 
-<details open>
-<summary><strong>Claude Code</strong></summary>
+Any MCP client works — register `openswarm-mcp` as a command-type server.
+
+- **Cursor** — Settings → MCP → Add new MCP server, command `openswarm-mcp`
+- **Windsurf** — add to `~/.codeium/windsurf/mcp_config.json`
+- **Copilot** — add to VS Code `settings.json` under `github.copilot.chat.mcp.servers`
+- **OpenCode** — add to `opencode.json` under `mcp`
+
+```json
+{ "mcpServers": { "openswarm": { "command": "openswarm-mcp", "args": [] } } }
+```
+
+Tools: `openswarm_run(task, team?)`, `openswarm_teams()`, `openswarm_team_info(team)`.
+</details>
+
+## CLI
 
 ```bash
-claude mcp add openswarm -- openswarm-mcp
+openswarm run "task"              # uses the project's team.yaml
+openswarm interactive             # REPL session with the team
+openswarm team list               # all teams, local and global
+openswarm run "task" -q > out.md  # result only, for pipes
 ```
-</details>
-
-<details>
-<summary><strong>Cursor</strong></summary>
-
-Go to **Cursor Settings → MCP → Add new MCP server**:
-
-- Name: `openswarm`
-- Type: `command`
-- Command: `openswarm-mcp`
-</details>
-
-<details>
-<summary><strong>GitHub Copilot (VS Code)</strong></summary>
-
-Add to VS Code `settings.json`:
-
-```json
-{
-  "github.copilot.chat.mcp.servers": {
-    "openswarm": {
-      "command": "openswarm-mcp",
-      "args": []
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>Windsurf</strong></summary>
-
-Add to `~/.codeium/windsurf/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "openswarm": {
-      "command": "openswarm-mcp",
-      "args": []
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>OpenCode</strong></summary>
-
-Add to your `opencode.json`:
-
-```json
-{
-  "mcp": {
-    "openswarm": {
-      "type": "local",
-      "command": ["openswarm-mcp"],
-      "timeout": 300000
-    }
-  }
-}
-```
-</details>
-
-### 3. Use your IDE normally
-
-That's it. Open your project, give coding tasks — your IDE automatically delegates to the team. No special commands, no prompting needed.
-
-### Supported IDEs
-
-| Tool | Integration | Status |
-|------|------------|--------|
-| **Claude Code** | MCP server (auto-discovery via `.mcp.json`) | Ready |
-| **OpenCode** | MCP server (auto-discovery via `opencode.json`) | Ready |
-| **Cursor** | MCP server (via Cursor settings) | Ready |
-| **Windsurf** | MCP server (via `~/.codeium/windsurf/mcp_config.json`) | Ready |
-| **GitHub Copilot** | MCP server (via VS Code `settings.json`) | Ready |
-
-Any tool that supports MCP works with OpenSwarm — the setup is the same pattern everywhere.
-
-## How It Works
-
-```
-User: "Build user auth API"
-  ↓
-Senior (Claude): decomposes task
-  ├── "Write User model" → Junior (DeepSeek)
-  ├── "Write endpoints"  → Junior (DeepSeek)
-  └── "Design JWT strategy" → Senior handles directly
-  ↓
-Junior returns code → Senior reviews → requests fixes or approves
-  ↓
-Final result → User
-```
-
-**How does the IDE know to use OpenSwarm?** When `team.yaml` exists in your project, the MCP server tells your IDE to delegate all coding tasks to the team automatically. You just use your IDE normally.
-
-**What if the task doesn't match the team?** For example, you have a frontend team but ask a backend question. The team's lead agent recognizes it's outside their scope and says so — your IDE then handles it directly. You never need to decide; just ask, and the system routes it to the right place.
-
-### MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `openswarm_run(task, team?)` | Delegate a task to an agent team (auto-selects if one team exists) |
-| `openswarm_teams()` | List available teams (local + global) |
-| `openswarm_team_info(team)` | Show team details — agents, models, workflow |
-
-Config discovery: `team.yaml` / `openswarm.yaml` in project root, `openswarm/*.yaml` subdirectory, and `~/.openswarm/teams/` globally.
-
-## CLI Usage
-
-```bash
-# Uses the project's team.yaml automatically — no flags needed
-openswarm run "Build a REST API"
-
-# Explicit config file, or a named team (project-local or global)
-openswarm run "Build a REST API" --config team.yaml
-openswarm run "Fix the login bug" --team backend
-
-# Scaffold and check
-openswarm init                  # create team.yaml
-openswarm doctor                # validate configs, env vars, providers
-openswarm doctor --check-connection   # also ping each agent's endpoint (a few tokens each)
-
-# Inspect
-openswarm team list             # all teams, local and global
-openswarm team info backend     # agents, models, rules
-
-# Run as Python module
-python -m openswarm run "Do the thing"
-```
-
-### `run` flags
 
 | Flag | Purpose |
 |------|---------|
-| `-c, --config PATH` | Use a specific config file |
-| `-t, --team NAME` | Use a named team (project-local or `~/.openswarm/teams/`) |
-| `-v, --verbose` | Show inter-agent messages as they happen |
-| `-s, --stream` | Stream agent output token-by-token |
-| `-q, --quiet` | Print only the result — for pipes and redirects |
-| `-o, --output PATH` | Write the result to a file |
-| `--max-rounds N` | Override the team's `max_rounds` for this run |
-| `--no-tools` | Stop agents reading/writing files and running commands |
+| `-c, --config PATH` · `-t, --team NAME` | Pick a config explicitly |
+| `-v` · `-s` · `-q` · `-o FILE` | Verbose · stream · quiet · write to file |
+| `--max-rounds N` · `--no-tools` | Cap rounds · stop agents touching files |
 
-With no `-c`/`-t`, OpenSwarm uses the single discoverable team config. If several exist, it lists them and asks you to pick — it never guesses.
+With no `-c`/`-t`, OpenSwarm uses the project's single team config; if several exist it lists them rather than guessing.
 
-```bash
-openswarm run "Summarize the auth flow" -q > auth-notes.md
-```
+**Interactive mode** renders markdown, streams answers, and keeps history between sessions. `@file` attaches a file to your task, `!cmd` runs a shell command, and `/help` lists the rest.
 
-### Agents acting on your workspace
+## Agents acting on your workspace
 
-Agents can read files, write files, and run commands — and **every action stops and
-asks you first**. This is on by default; nothing happens without your yes:
-
-```bash
-openswarm run "Add a slugify function to utils.py and run the tests"
-openswarm interactive
-openswarm run "Just explain the auth flow" --no-tools   # opt out
-```
+Agents can write files and run commands — **every action asks first**:
 
 ```
 Write utils.py (14 lines)
   | def slugify(text: str) -> str:
   |     ...
-Allow? [y/N]
+
+ > Yes
+   Yes, and don't ask again for write_file this session
+   No, and tell the agent what to do instead
+   No
 ```
 
-Refusing is a normal outcome: the agent is told no and carries on. Three rules hold
-regardless of what an agent asks for, or what you approve:
+↑/↓ and Enter, or press the number. Writes cannot leave the working directory, even if you approve them. Sessions with nobody to ask — pipes, automation, the MCP server — get no tools at all. Opt out entirely with `--no-tools`.
 
-- **Nothing runs without your approval.** Every write and every command is shown and
-  confirmed individually. Refusing is normal — the agent is told no and carries on.
-- **Writes cannot leave the working directory.** `..`, absolute paths, and symlinks
-  pointing outward are refused even with your approval.
-- **No terminal, no tools.** Piped and automated sessions — including the MCP server —
-  get no tools at all, because nobody is there to approve anything. So
-  `openswarm run "..." -q > out.md` behaves exactly as it always did.
+This is an approval gate, not a sandbox: approving `rm -rf` still runs it.
 
-Commands run in the working directory with your permissions and a 120s timeout. This is
-an approval gate, not a sandbox: approving `rm -rf` still runs `rm -rf`.
-
-### Interactive Mode
-
-A REPL for working with your team across several turns.
-
-```bash
-openswarm interactive              # auto-discovers team.yaml
-openswarm interactive -t backend -v
-```
-
-```
-swarm> What is the bug in @buggy.py? One sentence.
-attached: buggy.py
-senior The bug is that the function is named 'add' but returns a - b instead of a + b.
-```
-
-- **Results render as markdown** — code blocks come back syntax-highlighted.
-- **Streaming is on by default**, and shows only the agent's answer; the JSON
-  protocol the agents use between themselves stays out of your way.
-- **`<agent> is thinking...`** animates while a model works, naming whoever has the
-  turn, and disappears the moment real output arrives.
-- **`@file` attaches a file** to your task. Agents have no filesystem access, so the
-  contents are inlined into the prompt (truncated past 20k characters).
-- **`!command`** runs a shell command without leaving the REPL — handy for running the
-  tests your team just wrote.
-- **Multi-line input**: end a line with `\` or press Esc+Enter to continue.
-- **History persists** between sessions (up-arrow), with ghost-text suggestions, and
-  `/` tab-completes with descriptions. A status bar tracks tokens and cost.
-
-| Command | Does |
-|---------|------|
-| `/help` | List commands |
-| `/team` | Show the current team |
-| `/history` | Show message history |
-| `/usage` | Full token and cost table for the session |
-| `/save FILE` | Write the last result to a file |
-| `/copy` | Print the last result unrendered, for pasting |
-| `/retry` | Run the previous task again |
-| `/model AGENT MODEL` | Swap one agent's model mid-session |
-| `/clear` | Clear history (messages and agent memory) |
-| `/stream` | Toggle streaming |
-| `/quit` | Exit (`/exit`, `/q` also work) |
-
-Ctrl+C cancels the current task without exiting; Ctrl+D exits.
-
-> `!command` runs in your own shell with your own permissions, exactly as typed. It is
-> a convenience for trusted local commands, not a sandbox.
-
-### Config discovery
-
-`openswarm` and the MCP server look in the same places, in this order:
-
-1. `team.yaml` / `team.yml` / `openswarm.yaml` / `.openswarm.yaml` in the current directory
-2. `openswarm/*.yaml` in the current directory
-3. `~/.openswarm/teams/*.yaml` (or `$OPENSWARM_CONFIG_DIR/teams/`)
-
-Project-local configs win over global ones with the same name.
-
-## Team Config
+## Team config
 
 ```yaml
 team:
   name: "backend-team"
   goal: "Build and maintain backend services"
-  workflow: hierarchical
-  lead: "senior"
+  workflow: hierarchical     # or pipeline, collaborative
+  lead: "senior"             # hierarchical only
   max_rounds: 10
 
 agents:
@@ -328,189 +125,54 @@ agents:
     host: https://api.anthropic.com
     api_key: ${ANTHROPIC_API_KEY}
     max_tokens: 4096
-    temperature: 0.7
     rules:
       - "Break down tasks and delegate to junior"
       - "Review output before marking done"
-
-  - name: "junior"
-    role: junior
-    model: deepseek-chat
-    host: https://api.deepseek.com/v1
-    api_key: ${DEEPSEEK_API_KEY}
-    max_tokens: 2048
-    temperature: 0.3
-    rules:
-      - "Execute assigned tasks"
-      - "Write tests for all code"
 ```
 
-### Agent Config Fields
+| Field | Default | Notes |
+|-------|---------|-------|
+| `name` · `role` · `model` · `host` · `api_key` | required | `api_key` supports `${VAR}` and `${VAR:-fallback}` |
+| `max_tokens` | `4096` | Reasoning models need room to think before answering |
+| `temperature` | `0.7` | 0.0–2.0 |
+| `max_history` | `40` | Messages kept per agent |
+| `rules` | `[]` | Behaviour rules |
 
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `name` | yes | — | Agent identifier |
-| `role` | yes | — | What this agent does |
-| `model` | yes | — | LLM model name |
-| `host` | yes | — | API endpoint URL (OpenAI-compatible) |
-| `api_key` | yes | — | API key (supports `${ENV_VAR}` syntax) |
-| `max_tokens` | no | `4096` | Max tokens per response (≥ 1) — see note below |
-| `temperature` | no | `0.7` | Sampling temperature (0.0–2.0) |
-| `max_history` | no | `40` | Max messages kept in agent history (≥ 1) |
-| `rules` | no | `[]` | Agent behavior rules |
+Any model litellm supports works — Claude, GPT, DeepSeek, Mistral, Llama, Ollama, or your own gateway. If litellm can't infer the provider from a model name, prefix it with `openai/`.
 
-Any string value supports `${VAR}` and `${VAR:-fallback}`:
+Configs are discovered from `team.yaml` / `openswarm.yaml` in the project, `openswarm/*.yaml`, then `~/.openswarm/teams/`.
 
-```yaml
-host: ${OLLAMA_HOST:-http://localhost:11434}
-api_key: ${DEEPSEEK_API_KEY}
-```
-
-`${VAR}` with nothing set is an error with the exact `export` line you need. `${VAR:-fallback}` never fails.
-
-**Using a reasoning model?** Give it a generous `max_tokens`. Reasoning models spend
-tokens thinking before they answer, so a tight budget truncates the reply mid-thought and
-you get the model's scratch work instead of a result. OpenSwarm logs a warning when a
-response is cut off by `max_tokens` — if you see it, raise the value for that agent.
-
-**What models can I use?** Any model with an OpenAI-compatible API — Claude, GPT, DeepSeek, Mistral, Llama, local models via Ollama, or a self-hosted gateway. If [litellm](https://docs.litellm.ai/docs/providers) supports it, OpenSwarm supports it. If litellm can't infer the provider from a model name, prefix it with `openai/`.
-
-## Workflow Types
+## Workflows
 
 | Type | How it works | Best for |
 |------|-------------|----------|
-| **hierarchical** | Lead delegates, reviews, requests revisions, assembles | Dev teams, review workflows |
-| **pipeline** | Sequential: A → B → C — each agent transforms output | Content pipelines, data processing |
-| **collaborative** | All agents discuss → consensus | Brainstorming, code review, decision-making |
+| **hierarchical** | Lead delegates, reviews, assembles | Dev teams, review cycles |
+| **pipeline** | A → B → C, each transforms the output | Content, data processing |
+| **collaborative** | All discuss, moderator synthesizes | Decisions, brainstorming |
 
-### Pipeline Workflow
+## Cost
 
-Sequential chain where each agent receives the previous agent's output:
+Every run prints tokens per agent, with cost when the provider reports pricing.
 
-```yaml
-team:
-  name: "content-pipeline"
-  goal: "Write and polish articles"
-  workflow: pipeline
+| "Build user auth API" | Tokens | Cost |
+|---|---|---|
+| Sonnet does everything | ~28,000 | ~$0.109 |
+| Sonnet decides, DeepSeek builds | ~25,000 | ~$0.034 |
 
-agents:
-  - name: "writer"
-    role: writer
-    # ...
-  - name: "editor"
-    role: editor
-    # ...
-  - name: "reviewer"
-    role: reviewer
-    # ...
-```
+The expensive model handles ~20% of tokens but makes the decisions that matter.
 
-Agents execute in config list order. No lead required.
+## Reliability
 
-### Collaborative Workflow
+Retries transient errors, reports the rest with a hint at what to check. One provider going down doesn't kill a run — the lead routes around it. Config problems name the file and field. `openswarm doctor` catches all of it before you spend a token.
 
-All agents see the task simultaneously and discuss in rounds. First agent in the list acts as moderator. Early exit if all agents agree. Moderator synthesizes the final answer.
-
-```yaml
-team:
-  name: "review-panel"
-  goal: "Review and decide on architecture"
-  workflow: collaborative
-  max_rounds: 5
-
-agents:
-  - name: "moderator"
-    role: architect
-    # ... (first agent = moderator)
-  - name: "backend"
-    role: backend-specialist
-    # ...
-  - name: "frontend"
-    role: frontend-specialist
-    # ...
-```
-
-Requires at least 2 agents. No `lead` field needed.
-
-## Error Handling
-
-- LLM calls retry twice on transient errors (rate limits, timeouts, connection issues)
-- Permanent errors (bad API key, invalid model) fail immediately with a clear message
-- `openswarm run` shows clean error output instead of tracebacks
-- Config validation catches problems at load time: missing `lead`, unknown workflow type, duplicate agent names, invalid temperature/token values, malformed YAML — each naming the field and file
-- Unset `${ENV_VAR}` references are reported together, with the `export` lines to fix them
-- If a hierarchical run hits `max_rounds` without the lead finishing, the last real agent output is returned rather than discarded
-- **One provider going down does not kill the run.** A failed worker is reported back to the lead, which routes around it or finishes the task itself; a failed participant is skipped in collaborative discussions; a failed pipeline stage passes the previous stage's output through. Only the lead agent failing is fatal, since nothing can drive the run without it.
-- `openswarm doctor` catches all of the above before you spend a token
-
-## Cost Comparison
-
-Why pay for an expensive model to write boilerplate? Let the cheap model do the heavy lifting.
-
-### Example: "Build user auth API"
-
-**Without OpenSwarm** — Claude Code does everything with Claude Sonnet:
-
-| Step | Model | Input tokens | Output tokens | Cost |
-|------|-------|-------------|---------------|------|
-| Decompose task | Sonnet | ~2,000 | ~500 | $0.009 |
-| Write User model | Sonnet | ~3,000 | ~1,500 | $0.019 |
-| Write endpoints | Sonnet | ~4,000 | ~2,000 | $0.024 |
-| Write tests | Sonnet | ~5,000 | ~2,500 | $0.030 |
-| Review & fix | Sonnet | ~6,000 | ~1,500 | $0.027 |
-| **Total** | | **~20,000** | **~8,000** | **~$0.109** |
-
-*Sonnet: $3/M input, $15/M output*
-
-**With OpenSwarm** — Senior (Sonnet) delegates bulk work to Junior (DeepSeek):
-
-| Step | Model | Input tokens | Output tokens | Cost |
-|------|-------|-------------|---------------|------|
-| Decompose + delegate | Sonnet | ~2,000 | ~500 | $0.009 |
-| Write User model | DeepSeek | ~3,000 | ~1,500 | $0.001 |
-| Write endpoints | DeepSeek | ~4,000 | ~2,000 | $0.002 |
-| Write tests | DeepSeek | ~5,000 | ~2,500 | $0.002 |
-| Review & approve | Sonnet | ~4,000 | ~500 | $0.020 |
-| **Total** | | **~18,000** | **~7,000** | **~$0.034** |
-
-*DeepSeek: $0.14/M input, $0.28/M output*
-
-**Result: ~70% cost reduction** on the same task, with the expensive model only doing what it's good at — architecture and review.
-
-### At scale
-
-| Scenario | Without OpenSwarm | With OpenSwarm | Savings |
-|----------|------------------|----------------|---------|
-| 10 features/day | ~$1.09 | ~$0.34 | 69% |
-| 100 features/day | ~$10.90 | ~$3.40 | 69% |
-| With Opus as lead | ~$3.00 | ~$0.85 | 72% |
-
-The more work you can route to cheap models, the more you save. Senior handles ~20% of tokens but makes the decisions that matter.
-
-### See your actual usage
-
-Every run prints a token-usage breakdown — per agent, per model, with totals — so you can verify the split for yourself instead of trusting the numbers above:
-
-```
-                           Token Usage
-┏━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━┓
-┃ Agent  ┃ Model               ┃ Prompt ┃ Completion ┃ Total ┃
-┡━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━┩
-│ senior │ claude-sonnet-4     │    777 │        152 │   929 │
-│ junior │ deepseek-chat       │    442 │        163 │   605 │
-├────────┼─────────────────────┼────────┼────────────┼───────┤
-│ Total  │                     │   1219 │        315 │  1534 │
-└────────┴─────────────────────┴────────┴────────────┴───────┘
-```
-
-A `Cost` column is added automatically when the provider returns price information. The same summary is appended to the MCP tool response, so IDEs see it too.
-
-## Environment Variables
+## Environment
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `OPENSWARM_CONFIG_DIR` | `~/.openswarm` | Global config directory |
-| `OPENSWARM_LOG_LEVEL` | `INFO` | Log level |
+| `OPENSWARM_LOG_LEVEL` | `WARNING` | Log level |
+
+Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

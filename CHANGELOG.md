@@ -21,6 +21,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 ### Added
 - **Agents can act on the workspace**: `write_file`, `read_file`, and `run_command`, each
   requiring explicit approval before it happens. On by default, opt out with `--no-tools`.
+  Approval is an arrow-key menu — yes, yes-and-don't-ask-again (scoped to that one action
+  kind), no-with-feedback that goes back to the agent, or no. Esc and Ctrl-C mean no.
   Writes are confined to the working directory — `..`, absolute paths, and outward
   symlinks are refused even when approved — and sessions with no terminal to ask (pipes,
   automation, the MCP server) get no tools at all.
