@@ -11,6 +11,7 @@ from rich.table import Table
 from openswarm.config.discovery import config_source
 from openswarm.config.models import TeamConfig
 from openswarm.core.message import Message
+from openswarm.core.tools import ToolRequest
 from openswarm.core.usage import RunUsage
 
 console = Console()
@@ -128,3 +129,41 @@ def print_usage_table(usage: RunUsage) -> None:
 
     console.print()
     console.print(table)
+
+
+def make_tool_approver(workspace: Path, pause=None) -> Callable[[ToolRequest], str]:
+    """Ask before every workspace action, showing what it will do.
+
+    Only usable on a terminal: with no one to ask, there is no approval, so the
+    caller must not install this in a piped or automated session.
+    """
+    from openswarm.core.tools import run_with_approval
+
+    def ask(request: ToolRequest) -> bool:
+        console.print()
+        if request.kind == "write_file":
+            console.print(f"[bold yellow]Write[/bold yellow] {request.path}")
+            preview = request.content.splitlines()
+            shown = preview[:20]
+            for line in shown:
+                console.print(f"  [dim]│[/dim] {line}")
+            if len(preview) > len(shown):
+                console.print(f"  [dim]│ ... {len(preview) - len(shown)} more lines[/dim]")
+        elif request.kind == "read_file":
+            console.print(f"[bold yellow]Read[/bold yellow] {request.path}")
+        else:
+            console.print(f"[bold yellow]Run[/bold yellow] {request.command}")
+
+        answer = console.input("[bold]Allow? [y/N][/bold] ").strip().lower()
+        return answer in ("y", "yes")
+
+    def confirm(request: ToolRequest) -> bool:
+        if pause is None:
+            return ask(request)
+        with pause():
+            return ask(request)
+
+    def approve(request: ToolRequest) -> str:
+        return run_with_approval(request, workspace, confirm)
+
+    return approve

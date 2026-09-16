@@ -381,7 +381,7 @@ def _make_stream_printer(thinking: Thinking | None = None) -> callable:
     return on_progress
 
 
-def run_interactive(team: Team, verbose: bool = False) -> None:
+def run_interactive(team: Team, verbose: bool = False, on_tool=None) -> None:
     """Run the interactive REPL loop."""
     workflow = get_workflow(team.config.workflow.type)
     orchestrator = Orchestrator(team, workflow)
@@ -469,11 +469,13 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
             if show_status:
                 with console.status("[bold yellow]Working...[/bold yellow]", spinner="dots") as st:
                     run_result = asyncio.run(
-                        orchestrator.run(text, on_message=make_status_updater(st))
+                        orchestrator.run(text, on_message=make_status_updater(st), on_tool=on_tool)
                     )
             else:
                 run_result = asyncio.run(
-                    orchestrator.run(text, on_message=announce, on_progress=on_progress)
+                    orchestrator.run(
+                        text, on_message=announce, on_progress=on_progress, on_tool=on_tool
+                    )
                 )
             if stream_state[0]:
                 console.print("\n")

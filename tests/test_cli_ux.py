@@ -406,3 +406,42 @@ def test_doctor_probe_retries_transient_blips(isolated: Path):
     # chat() owns the retry loop, so doctor calls it once per agent and passes
     # the attempt budget down.
     assert len(calls) == 2  # two agents in SAMPLE_YAML
+
+
+# --- workspace tools default on, but never without someone to ask ---
+
+
+def test_tools_are_enabled_by_default_on_a_terminal(tmp_path, monkeypatch):
+    from openswarm.cli.app import resolve_tool_approver
+
+    monkeypatch.setattr("openswarm.cli.app.sys.stdin.isatty", lambda: True)
+
+    assert resolve_tool_approver(no_tools=False, workspace=tmp_path) is not None
+
+
+def test_no_tools_opts_out(tmp_path, monkeypatch):
+    from openswarm.cli.app import resolve_tool_approver
+
+    monkeypatch.setattr("openswarm.cli.app.sys.stdin.isatty", lambda: True)
+
+    assert resolve_tool_approver(no_tools=True, workspace=tmp_path) is None
+
+
+def test_piped_session_gets_no_tools(tmp_path, monkeypatch):
+    """Nobody is there to approve, so the agent gets nothing — quietly, not fatally."""
+    from openswarm.cli.app import resolve_tool_approver
+
+    monkeypatch.setattr("openswarm.cli.app.sys.stdin.isatty", lambda: False)
+
+    assert resolve_tool_approver(no_tools=False, workspace=tmp_path) is None
+
+
+def test_quiet_piped_run_still_works_with_tools_on(isolated: Path):
+    """The new default must not break `openswarm run ... -q > file`."""
+    (isolated / "team.yaml").write_text(SAMPLE_YAML)
+
+    with patch("openswarm.llm.client.litellm.acompletion", _lead_responds("piped ok")):
+        result = runner.invoke(app, ["run", "Do something", "-q"])
+
+    assert result.exit_code == 0
+    assert result.output.strip() == "piped ok"

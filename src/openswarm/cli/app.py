@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import sys
@@ -17,6 +18,7 @@ from openswarm import __version__
 from openswarm.cli.utils import (
     make_message_printer,
     make_status_updater,
+    make_tool_approver,
     print_team_summary,
     print_teams_table,
     print_usage_table,
@@ -156,6 +158,11 @@ def run(
     max_rounds: int | None = typer.Option(
         None, "--max-rounds", help="Override the team's max_rounds for this run"
     ),
+    no_tools: bool = typer.Option(
+        False,
+        "--no-tools",
+        help="Stop agents reading/writing files and running commands",
+    ),
 ) -> None:
     """Run a task with an agent team.
 
@@ -184,6 +191,9 @@ def run(
     if not quiet and on_message is not None and on_progress is None:
         console.print("\n[bold yellow]Running...[/bold yellow]\n")
 
+    pauser = StatusPauser()
+    on_tool = resolve_tool_approver(no_tools, Path.cwd(), pause=pauser.paused)
+
     try:
         run_result = _execute(
             orchestrator,
@@ -191,6 +201,8 @@ def run(
             on_message=on_message,
             on_progress=on_progress,
             show_status=not (quiet or stream or verbose),
+            on_tool=on_tool,
+            pauser=pauser,
         )
     except LLMError as e:
         _fail(f"LLM error: {e}")
@@ -216,12 +228,20 @@ def run(
     print_usage_table(run_result.usage)
 
 
-def _execute(orchestrator, task, *, on_message, on_progress, show_status):
+def _execute(
+    orchestrator, task, *, on_message, on_progress, show_status, on_tool=None, pauser=None
+):
     """Run the orchestrator, optionally under a spinner naming the active agent."""
     if show_status:
         with console.status("[bold yellow]Starting...[/bold yellow]", spinner="dots") as status:
-            return asyncio.run(orchestrator.run(task, on_message=make_status_updater(status)))
-    return asyncio.run(orchestrator.run(task, on_message=on_message, on_progress=on_progress))
+            if pauser is not None:
+                pauser.status = status  # so an approval prompt can interrupt it
+            return asyncio.run(
+                orchestrator.run(task, on_message=make_status_updater(status), on_tool=on_tool)
+            )
+    return asyncio.run(
+        orchestrator.run(task, on_message=on_message, on_progress=on_progress, on_tool=on_tool)
+    )
 
 
 @app.command()
@@ -231,6 +251,11 @@ def interactive(
         None, "--team", "-t", help="Team name (project-local or global config)"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show inter-agent messages"),
+    no_tools: bool = typer.Option(
+        False,
+        "--no-tools",
+        help="Stop agents reading/writing files and running commands",
+    ),
 ) -> None:
     """Start an interactive REPL session with a team."""
     _setup_logging(verbose)
@@ -241,7 +266,7 @@ def interactive(
 
     from openswarm.cli.interactive import run_interactive
 
-    run_interactive(team_obj, verbose=verbose)
+    run_interactive(team_obj, verbose=verbose, on_tool=resolve_tool_approver(no_tools, Path.cwd()))
 
 
 @app.command()
@@ -505,3 +530,32 @@ app.command(name="team-info", hidden=True)(team_info)
 
 if __name__ == "__main__":
     app()
+
+
+def resolve_tool_approver(no_tools: bool, workspace: Path, pause=None):
+    """Build the approval callback for workspace actions.
+
+    On by default, with every action still gated on an explicit yes. Approval is
+    the only thing between an agent and the filesystem, so a session with nobody
+    to ask — piped, redirected, automated — gets no tools at all, quietly.
+    """
+    if no_tools or not sys.stdin.isatty():
+        return None
+    return make_tool_approver(workspace, pause=pause)
+
+
+class StatusPauser:
+    """Lets the approval prompt borrow the terminal back from the spinner."""
+
+    def __init__(self) -> None:
+        self.status = None
+
+    @contextlib.contextmanager
+    def paused(self):
+        if self.status is not None:
+            self.status.stop()
+        try:
+            yield
+        finally:
+            if self.status is not None:
+                self.status.start()
