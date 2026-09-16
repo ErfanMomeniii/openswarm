@@ -214,12 +214,45 @@ python -m openswarm run "Do the thing"
 | `-q, --quiet` | Print only the result — for pipes and redirects |
 | `-o, --output PATH` | Write the result to a file |
 | `--max-rounds N` | Override the team's `max_rounds` for this run |
+| `--no-tools` | Stop agents reading/writing files and running commands |
 
 With no `-c`/`-t`, OpenSwarm uses the single discoverable team config. If several exist, it lists them and asks you to pick — it never guesses.
 
 ```bash
 openswarm run "Summarize the auth flow" -q > auth-notes.md
 ```
+
+### Agents acting on your workspace
+
+Agents can read files, write files, and run commands — and **every action stops and
+asks you first**. This is on by default; nothing happens without your yes:
+
+```bash
+openswarm run "Add a slugify function to utils.py and run the tests"
+openswarm interactive
+openswarm run "Just explain the auth flow" --no-tools   # opt out
+```
+
+```
+Write utils.py (14 lines)
+  | def slugify(text: str) -> str:
+  |     ...
+Allow? [y/N]
+```
+
+Refusing is a normal outcome: the agent is told no and carries on. Three rules hold
+regardless of what an agent asks for, or what you approve:
+
+- **Nothing runs without your approval.** Every write and every command is shown and
+  confirmed individually. Refusing is normal — the agent is told no and carries on.
+- **Writes cannot leave the working directory.** `..`, absolute paths, and symlinks
+  pointing outward are refused even with your approval.
+- **No terminal, no tools.** Piped and automated sessions — including the MCP server —
+  get no tools at all, because nobody is there to approve anything. So
+  `openswarm run "..." -q > out.md` behaves exactly as it always did.
+
+Commands run in the working directory with your permissions and a 120s timeout. This is
+an approval gate, not a sandbox: approving `rm -rf` still runs `rm -rf`.
 
 ### Interactive Mode
 

@@ -19,6 +19,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   so the terminal used to sit blank.
 
 ### Added
+- **Agents can act on the workspace**: `write_file`, `read_file`, and `run_command`, each
+  requiring explicit approval before it happens. On by default, opt out with `--no-tools`.
+  Writes are confined to the working directory — `..`, absolute paths, and outward
+  symlinks are refused even when approved — and sessions with no terminal to ask (pipes,
+  automation, the MCP server) get no tools at all.
 - `@file` in a REPL task inlines that file's contents, so agents (which have no
   filesystem access) can actually see the code you are asking about. Capped at 20k
   characters per file.
