@@ -509,3 +509,52 @@ async def test_question_to_the_user_is_returned_not_crashed(team_config: TeamCon
         )
 
     assert result == "Which format?"
+
+
+# --- models that answer in tool-call XML instead of JSON ---
+
+
+def test_xml_tool_call_is_understood():
+    """MiniMax and other tool-trained models emit this instead of our JSON."""
+    raw = (
+        "<minimax:tool_call>\n"
+        '<invoke name="write_file">\n'
+        '<parameter name="path">ali.txt</parameter>\n'
+        '<parameter name="content">123</parameter>\n'
+        "</invoke>\n"
+        "</minimax:tool_call>"
+    )
+
+    assert _parse_agent_response(raw) == {
+        "action": "write_file",
+        "path": "ali.txt",
+        "content": "123",
+    }
+
+
+def test_xml_tool_call_keeps_multiline_content():
+    raw = (
+        '<invoke name="write_file">\n'
+        '<parameter name="path">a.py</parameter>\n'
+        '<parameter name="content">\ndef f():\n    return 1\n</parameter>\n'
+        "</invoke>"
+    )
+
+    assert _parse_agent_response(raw)["content"] == "def f():\n    return 1"
+
+
+def test_xml_command_call_is_understood():
+    raw = '<invoke name="run_command">\n<parameter name="command">pytest -q</parameter>\n</invoke>'
+
+    assert _parse_agent_response(raw) == {"action": "run_command", "command": "pytest -q"}
+
+
+def test_json_is_still_preferred_over_xml():
+    raw = '{"action": "respond", "content": "plain answer"}'
+
+    assert _parse_agent_response(raw)["action"] == "respond"
+
+
+def test_prose_still_fails_to_parse():
+    with pytest.raises(json.JSONDecodeError):
+        _parse_agent_response("I will now write the file for you.")
