@@ -423,3 +423,67 @@ def test_stream_hides_an_envelope_with_no_content():
 def test_stream_handles_escaped_quotes_in_content():
     out = _stream(['{"content": "say \\"hi\\" now"}'])
     assert out == 'say "hi" now'
+
+
+# --- thinking indicator ---
+
+
+def test_thinking_indicator_starts_updates_and_stops():
+    from openswarm.cli.interactive import Thinking
+
+    t = Thinking()
+    assert t._status is None
+
+    t.show("senior is thinking...")
+    assert t._status is not None
+    t.show("junior is thinking...")  # update, not a second spinner
+    first = t._status
+
+    t.show("junior is thinking...")
+    assert t._status is first
+
+    t.hide()
+    assert t._status is None
+    t.hide()  # idempotent: the finally-block calls it even when never shown
+
+
+def test_streamed_output_stops_the_spinner():
+    """Once real text arrives the spinner must get out of the way."""
+    from openswarm.cli.interactive import Thinking, _make_stream_printer
+
+    t = Thinking()
+    t.show("senior is thinking...")
+    printer = _make_stream_printer(t)
+
+    printer("senior", '{"action":"respond","content":"hel')
+    assert t._status is None
+
+
+def test_spinner_survives_envelope_only_chunks():
+    """Delegation envelopes produce no visible text, so keep thinking."""
+    from openswarm.cli.interactive import Thinking, _make_stream_printer
+
+    t = Thinking()
+    t.show("senior is thinking...")
+    printer = _make_stream_printer(t)
+
+    printer("senior", '{"action": "delegate", "to": "junior"}')
+    assert t._status is not None
+    t.hide()
+
+
+def test_announcer_names_the_working_agent():
+    from openswarm.cli.interactive import Thinking, _make_announcer
+    from openswarm.core.message import Message, MessageType
+
+    t = Thinking()
+    seen = []
+    announce = _make_announcer(t, seen.append)
+
+    announce(Message(from_agent="lead", to_agent="junior", type=MessageType.TASK, content="go"))
+    assert t._status is not None
+    assert len(seen) == 1  # the user's own on_message still fires
+
+    t.hide()
+    announce(Message(from_agent="lead", to_agent="user", type=MessageType.RESULT, content="done"))
+    assert t._status is None  # nothing is "thinking" when the answer is for the user

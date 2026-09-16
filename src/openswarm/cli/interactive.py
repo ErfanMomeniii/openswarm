@@ -133,6 +133,21 @@ def _key_bindings() -> KeyBindings:
     return kb
 
 
+def _make_announcer(thinking: Thinking, on_message) -> callable:
+    """Name whoever is about to work, so the wait is not anonymous.
+
+    Built outside the loop so the closure captures this turn's indicator.
+    """
+
+    def announce(msg) -> None:
+        if msg.to_agent not in ("user", "system"):
+            thinking.show(f"{msg.to_agent} is thinking...")
+        if on_message is not None:
+            on_message(msg)
+
+    return announce
+
+
 def _render_result(text: str) -> None:
     """Render a result as markdown so code blocks stay readable.
 
@@ -323,7 +338,29 @@ class ContentStream:
         return "".join(out)
 
 
-def _make_stream_printer() -> callable:
+class Thinking:
+    """Animated indicator for the wait before an agent produces visible text.
+
+    Reasoning models spend that time thinking, and the protocol envelope is
+    filtered out, so without this the terminal just sits blank.
+    """
+
+    def __init__(self) -> None:
+        self._status = None
+
+    def show(self, label: str) -> None:
+        if self._status is None:
+            self._status = console.status("", spinner="dots")
+            self._status.start()
+        self._status.update(f"[dim]{label}[/dim]")
+
+    def hide(self) -> None:
+        if self._status is not None:
+            self._status.stop()
+            self._status = None
+
+
+def _make_stream_printer(thinking: Thinking | None = None) -> callable:
     """Create a progress callback that prints an agent's answer as it arrives."""
     current_agent: list[str] = [""]
     filters: dict[str, ContentStream] = {}
@@ -332,6 +369,8 @@ def _make_stream_printer() -> callable:
         text = filters.setdefault(agent_name, ContentStream()).feed(chunk)
         if not text:
             return
+        if thinking is not None:
+            thinking.hide()  # real output beats a spinner
         if agent_name != current_agent[0]:
             if current_agent[0]:
                 console.print()
@@ -420,8 +459,11 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
         if attached:
             console.print(f"[dim]attached: {', '.join(attached)}[/dim]")
 
-        on_progress = _make_stream_printer() if stream_state[0] else None
+        thinking = Thinking()
+        on_progress = _make_stream_printer(thinking) if stream_state[0] else None
         show_status = not stream_state[0] and not verbose
+
+        announce = _make_announcer(thinking, on_message)
 
         try:
             if show_status:
@@ -431,7 +473,7 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
                     )
             else:
                 run_result = asyncio.run(
-                    orchestrator.run(text, on_message=on_message, on_progress=on_progress)
+                    orchestrator.run(text, on_message=announce, on_progress=on_progress)
                 )
             if stream_state[0]:
                 console.print("\n")
@@ -443,5 +485,7 @@ def run_interactive(team: Team, verbose: bool = False) -> None:
             console.print("\n[yellow]Task cancelled.[/yellow]")
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
+        finally:
+            thinking.hide()
 
         console.print()
