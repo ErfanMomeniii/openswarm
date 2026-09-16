@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from prompt_toolkit.styles import Style
@@ -188,7 +190,16 @@ def choose(options: list[str], default: int = 0) -> int | None:
         style=Style.from_dict({"selected": "reverse"}),
         full_screen=False,
     )
-    return app.run()
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return app.run()
+
+    # Approvals are requested from inside the orchestrator's event loop, and
+    # Application.run() starts its own. Give it a thread that has none.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(app.run).result()
 
 
 def _show_request(request: ToolRequest) -> None:

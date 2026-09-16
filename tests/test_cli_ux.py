@@ -578,3 +578,43 @@ def test_number_keys_pick_directly():
 
 def test_ctrl_c_cancels_the_menu():
     assert _drive_menu("\x03") is None
+
+
+def test_menu_works_inside_a_running_event_loop():
+    """Approvals are requested from inside orchestrator.run(), which is async.
+
+    Application.run() starts its own loop, so calling it directly there raised
+    'asyncio.run() cannot be called from a running event loop' — every tool
+    request crashed.
+    """
+    import asyncio
+
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from openswarm.cli.utils import choose
+
+    async def approve_mid_run():
+        with create_pipe_input() as pipe:
+            pipe.send_text("\x1b[B\r")
+            with create_app_session(input=pipe, output=DummyOutput()):
+                return choose(["Yes", "No"])
+
+    assert asyncio.run(approve_mid_run()) == 1
+
+
+def test_feedback_prompt_works_inside_a_running_loop(tmp_path):
+    """The 'tell it what to do instead' branch also runs mid-orchestration."""
+    import asyncio
+
+    from openswarm.cli.utils import make_tool_approver
+    from openswarm.core.tools import ToolRequest
+
+    approve = make_tool_approver(tmp_path, chooser=lambda options: 2)
+
+    async def refuse_mid_run():
+        with patch("openswarm.cli.utils.console.input", return_value="use pathlib"):
+            return approve(ToolRequest(kind="write_file", path="a.py", content="x"))
+
+    assert asyncio.run(refuse_mid_run()) == "Refused by the user: use pathlib"
