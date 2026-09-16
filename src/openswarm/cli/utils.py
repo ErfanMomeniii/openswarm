@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.table import Table
 
@@ -131,39 +132,121 @@ def print_usage_table(usage: RunUsage) -> None:
     console.print(table)
 
 
-def make_tool_approver(workspace: Path, pause=None) -> Callable[[ToolRequest], str]:
-    """Ask before every workspace action, showing what it will do.
+def choose(options: list[str], default: int = 0) -> int | None:
+    """Inline arrow-key menu. Returns the chosen index, or None if cancelled.
 
-    Only usable on a terminal: with no one to ask, there is no approval, so the
+    Deliberately not a full-screen dialog: the choice appears in the flow of the
+    session, the way a shell prompt does.
+    """
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.formatted_text import to_formatted_text
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.layout import HSplit, Layout, Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+
+    selected = [default]
+
+    def render():
+        lines = []
+        for i, option in enumerate(options):
+            if i == selected[0]:
+                lines.append(("class:selected", f" > {option}\n"))
+            else:
+                lines.append(("", f"   {option}\n"))
+        return to_formatted_text(lines)
+
+    keys = KeyBindings()
+
+    @keys.add("up")
+    @keys.add("k")
+    def _up(event) -> None:
+        selected[0] = (selected[0] - 1) % len(options)
+
+    @keys.add("down")
+    @keys.add("j")
+    def _down(event) -> None:
+        selected[0] = (selected[0] + 1) % len(options)
+
+    @keys.add("enter")
+    def _accept(event) -> None:
+        event.app.exit(result=selected[0])
+
+    @keys.add("escape")
+    @keys.add("c-c")
+    def _cancel(event) -> None:
+        event.app.exit(result=None)
+
+    for position in range(1, len(options) + 1):
+
+        @keys.add(str(position))
+        def _pick(event, index: int = position - 1) -> None:
+            event.app.exit(result=index)
+
+    app = Application(
+        layout=Layout(HSplit([Window(FormattedTextControl(render), dont_extend_height=True)])),
+        key_bindings=keys,
+        style=Style.from_dict({"selected": "reverse"}),
+        full_screen=False,
+    )
+    return app.run()
+
+
+def _show_request(request: ToolRequest) -> None:
+    """Print what the agent wants to do, before asking."""
+    console.print()
+    if request.kind == "write_file":
+        console.print(f"[bold yellow]Write[/bold yellow] {request.path}")
+        lines = request.content.splitlines()
+        for line in lines[:20]:
+            console.print(f"  [dim]|[/dim] {line}")
+        if len(lines) > 20:
+            console.print(f"  [dim]| ... {len(lines) - 20} more lines[/dim]")
+    elif request.kind == "read_file":
+        console.print(f"[bold yellow]Read[/bold yellow] {request.path}")
+    else:
+        console.print(f"[bold yellow]Run[/bold yellow] {request.command}")
+
+
+def make_tool_approver(workspace: Path, pause=None, chooser=None) -> Callable[[ToolRequest], str]:
+    """Ask before every workspace action, with a Claude Code style menu.
+
+    Only usable on a terminal: with no one to ask there is no approval, so the
     caller must not install this in a piped or automated session.
     """
-    from openswarm.core.tools import run_with_approval
+    from openswarm.core.tools import execute_safely
 
-    def ask(request: ToolRequest) -> bool:
-        console.print()
-        if request.kind == "write_file":
-            console.print(f"[bold yellow]Write[/bold yellow] {request.path}")
-            preview = request.content.splitlines()
-            shown = preview[:20]
-            for line in shown:
-                console.print(f"  [dim]│[/dim] {line}")
-            if len(preview) > len(shown):
-                console.print(f"  [dim]│ ... {len(preview) - len(shown)} more lines[/dim]")
-        elif request.kind == "read_file":
-            console.print(f"[bold yellow]Read[/bold yellow] {request.path}")
-        else:
-            console.print(f"[bold yellow]Run[/bold yellow] {request.command}")
+    pick = chooser or choose
+    always_allowed: set[str] = set()
 
-        answer = console.input("[bold]Allow? [y/N][/bold] ").strip().lower()
-        return answer in ("y", "yes")
+    def decide(request: ToolRequest) -> str:
+        if request.kind in always_allowed:
+            return execute_safely(request, workspace)
 
-    def confirm(request: ToolRequest) -> bool:
-        if pause is None:
-            return ask(request)
-        with pause():
-            return ask(request)
+        _show_request(request)
+        options = [
+            "Yes",
+            f"Yes, and don't ask again for {request.kind} this session",
+            "No, and tell the agent what to do instead",
+            "No",
+        ]
+        choice = pick(options)
+
+        if choice == 0:
+            return execute_safely(request, workspace)
+        if choice == 1:
+            always_allowed.add(request.kind)
+            return execute_safely(request, workspace)
+        if choice == 2:
+            feedback = console.input("[bold]What should it do instead?[/bold] ").strip()
+            if feedback:
+                return f"Refused by the user: {feedback}"
+            return f"Refused by the user: {request.describe()}"
+        return f"Refused by the user: {request.describe()}"
 
     def approve(request: ToolRequest) -> str:
-        return run_with_approval(request, workspace, confirm)
+        if pause is None:
+            return decide(request)
+        with pause():  # a spinner and a prompt cannot share the terminal
+            return decide(request)
 
     return approve

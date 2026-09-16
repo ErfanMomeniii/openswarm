@@ -148,6 +148,15 @@ def run_with_approval(
         return "Refused: this session does not allow workspace actions."
     if not approve(request):
         return f"Refused by the user: {request.describe()}"
+    return execute_safely(request, workspace)
+
+
+def execute_safely(request: ToolRequest, workspace: Path) -> str:
+    """Execute an approved request, reporting failures to the agent as text.
+
+    A tool that cannot run is something the agent should work around, not an
+    exception that ends the run.
+    """
     try:
         return execute(request, workspace)
     except ToolError as e:
