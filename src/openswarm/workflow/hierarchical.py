@@ -22,6 +22,9 @@ from openswarm.workflow.parsing import parse_agent_response
 
 logger = logging.getLogger(__name__)
 
+#: How many times a malformed reply is sent back for correction before giving up.
+MAX_FORMAT_NUDGES = 2
+
 # Kept as a module-level alias: collaborative and existing callers import this name.
 _parse_agent_response = parse_agent_response
 
@@ -59,6 +62,7 @@ class HierarchicalWorkflow(Workflow):
 
         current_msg = initial_msg
         target_agent = lead
+        format_nudges = 0  # correction attempts spent on unparseable replies
         # Salvaged if we run out of rounds; deliverables beat lead chatter.
         last_work: tuple[str, str] | None = None
         last_any: tuple[str, str] | None = None
@@ -104,7 +108,30 @@ class HierarchicalWorkflow(Workflow):
             try:
                 parsed = _parse_agent_response(raw_response)
             except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(f"Failed to parse response from '{target_agent.name}': {e}")
+                logger.warning(
+                    f"Failed to parse response from '{target_agent.name}': {e}\n"
+                    f"Raw response was: {raw_response[:500]}"
+                )
+                # Models drift out of the protocol, especially tool-trained ones.
+                # Asking again costs one round and usually works; surrendering
+                # shows the user the model's scratch work as if it were an answer.
+                if format_nudges < MAX_FORMAT_NUDGES:
+                    format_nudges += 1
+                    nudge = Message(
+                        from_agent="system",
+                        to_agent=target_agent.name,
+                        type=MessageType.RESULT,
+                        content=(
+                            "Your last reply was not valid JSON, so it could not be acted on. "
+                            "Reply with a single JSON object and nothing else — no XML tags, no "
+                            'markdown, no commentary. Example: {"action": "respond", '
+                            '"content": "your answer"}'
+                        ),
+                    )
+                    _log(nudge)
+                    current_msg = nudge
+                    continue
+
                 # If lead gave unparseable response, treat as final answer
                 if is_lead:
                     task.complete(raw_response)
@@ -150,6 +177,12 @@ class HierarchicalWorkflow(Workflow):
                 _log(result_msg)
                 current_msg = result_msg
                 continue
+
+            if action == "ask_user":
+                # Handed straight back: the CLI turns this into a form, and any
+                # other caller still sees the questions as text.
+                task.complete(raw_response)
+                return raw_response
 
             if action == "respond":
                 # Lead is done — return final answer

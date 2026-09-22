@@ -35,7 +35,11 @@ You may also act on the workspace. To do so, respond with one of:
 
 Every one of these needs the user's approval, and they may refuse. You will be
 told the result either way; continue from there. Write whole files, not
-fragments — "content" replaces the file completely."""
+fragments — "content" replaces the file completely.
+
+Reply with one JSON object and nothing else. No XML or tool-call tags, no
+markdown fences, no commentary before or after. For example:
+{"action": "write_file", "path": "notes.txt", "content": "hello"}"""
 
 TOOL_ACTIONS = ("write_file", "read_file", "run_command")
 

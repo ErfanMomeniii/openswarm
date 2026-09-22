@@ -558,3 +558,98 @@ def test_json_is_still_preferred_over_xml():
 def test_prose_still_fails_to_parse():
     with pytest.raises(json.JSONDecodeError):
         _parse_agent_response("I will now write the file for you.")
+
+
+@pytest.mark.parametrize(
+    ("label", "raw", "expected"),
+    [
+        (
+            "json wrapped in provider tags",
+            '<minimax:tool_call>\n{"action": "read_file", "path": "ali.txt"}\n</file_contents>',
+            {"action": "read_file", "path": "ali.txt"},
+        ),
+        (
+            "truncated before the closing brace",
+            '<minimax:tool_call>\n{"action": "read_file", "path": "ali.txt"\n</file_contents>',
+            {"action": "read_file", "path": "ali.txt"},
+        ),
+        (
+            "no content key to anchor on",
+            '{"action": "read_file", "path": "ali.txt"',
+            {"action": "read_file", "path": "ali.txt"},
+        ),
+        (
+            "command cut off mid-object",
+            '{"action": "run_command", "command": "ls -la"',
+            {"action": "run_command", "command": "ls -la"},
+        ),
+        (
+            "write truncated after content",
+            '{"action": "write_file", "path": "a.txt", "content": "123"',
+            {"action": "write_file", "path": "a.txt", "content": "123"},
+        ),
+    ],
+)
+def test_malformed_tool_responses_are_salvaged(label, raw, expected):
+    """Models truncate, add stray tags, and drop braces. The turn should survive."""
+    assert _parse_agent_response(raw) == expected
+
+
+def test_salvage_does_not_corrupt_well_formed_json():
+    assert _parse_agent_response('{"action": "respond", "content": "say \\"hi\\""}') == {
+        "action": "respond",
+        "content": 'say "hi"',
+    }
+    assert _parse_agent_response('{"action": "delegate", "to": "junior", "task": "go"}') == {
+        "action": "delegate",
+        "to": "junior",
+        "task": "go",
+    }
+
+
+@pytest.mark.asyncio
+async def test_unparseable_reply_is_sent_back_for_correction(team_config: TeamConfig):
+    """Surrendering shows the user the model's scratch work as if it were an answer."""
+    team = Team(team_config)
+    delivered: list[str] = []
+
+    responses = iter(
+        [
+            "read_file\npath: ali.txt\n}\n}",  # the shape seen in production
+            make_llm_response({"action": "respond", "content": "recovered"}),
+        ]
+    )
+
+    async def capture(self, message, is_lead=False, protocol_override=None, **kw):
+        delivered.append(message.content)
+        return next(responses)
+
+    with patch("openswarm.core.agent.Agent.respond", capture):
+        result = await HierarchicalWorkflow().execute(
+            Task(description="x"), team, max_rounds=6, message_log=[]
+        )
+
+    assert result == "recovered"
+    assert any("not valid JSON" in d for d in delivered)
+
+
+@pytest.mark.asyncio
+async def test_corrections_are_capped(team_config: TeamConfig):
+    """A model that never complies must not loop until max_rounds."""
+    from openswarm.workflow.hierarchical import MAX_FORMAT_NUDGES
+
+    team = Team(team_config)
+    nudges: list[str] = []
+
+    async def always_bad(self, message, is_lead=False, protocol_override=None, **kw):
+        if "not valid JSON" in message.content:
+            nudges.append(message.content)
+        return "still not json"
+
+    with patch("openswarm.core.agent.Agent.respond", always_bad):
+        result = await HierarchicalWorkflow().execute(
+            Task(description="x"), team, max_rounds=10, message_log=[]
+        )
+
+    assert len(nudges) == MAX_FORMAT_NUDGES
+    assert result == "still not json"  # falls back to showing what it said

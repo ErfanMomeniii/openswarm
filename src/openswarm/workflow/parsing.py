@@ -45,6 +45,40 @@ def _unescape(text: str) -> str:
         )
 
 
+#: Protocol fields that are always plain quoted strings.
+_SIMPLE_FIELDS = ("to", "task", "path", "command")
+
+
+def _salvage_fields(text: str) -> dict | None:
+    """Rebuild an action from a response whose JSON never parsed.
+
+    Models truncate mid-object, add trailing tags, or forget a brace. As long as
+    the action and its arguments are recognisable, the turn can still proceed.
+    Returns None when there is no action to salvage.
+    """
+    action = re.search(r'"action"\s*:\s*"(\w+)"', text)
+    if not action:
+        return None
+
+    parsed = {"action": action.group(1)}
+    for field in _SIMPLE_FIELDS:
+        match = re.search(rf'"{field}"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.DOTALL)
+        if match:
+            parsed[field] = _unescape(match.group(1))
+
+    # `content` can hold anything, including quotes and braces, so try it as a
+    # well-formed string first and only then take everything that follows.
+    strict = re.search(r'"content"\s*:\s*"((?:[^"\\]|\\.)*)"\s*[,}]', text, re.DOTALL)
+    if strict:
+        parsed["content"] = _unescape(strict.group(1))
+    else:
+        loose = re.search(r'"content"\s*:\s*"(.*)', text, re.DOTALL)
+        if loose:
+            parsed["content"] = _unescape(re.sub(r'"?\s*[,}]?\s*$', "", loose.group(1)))
+
+    return parsed
+
+
 def parse_agent_response(raw: str) -> dict:
     """Parse JSON response from agent.
 
@@ -94,17 +128,9 @@ def parse_agent_response(raw: str) -> dict:
                     except json.JSONDecodeError:
                         break
 
-    # Try to extract action field — model may have broken JSON with valid action
-    action_match = re.search(r'"action"\s*:\s*"(\w+)"', text)
-    if action_match:
-        action = action_match.group(1)
-        # Extract content between "content": " and the last "
-        content_match = re.search(r'"content"\s*:\s*"(.*)', text, re.DOTALL)
-        if content_match:
-            content = content_match.group(1)
-            # Remove trailing "} or similar
-            content = re.sub(r'"\s*\}\s*$', "", content)
-            return {"action": action, "content": _unescape(content)}
+    salvaged = _salvage_fields(text)
+    if salvaged is not None:
+        return salvaged
 
     # Last: the model may have answered in tool-call XML rather than JSON.
     tool_call = parse_tool_call_xml(text)
