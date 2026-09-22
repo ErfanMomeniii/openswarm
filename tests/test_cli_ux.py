@@ -640,7 +640,7 @@ def test_overwrite_shows_a_diff_including_deletions(tmp_path, capsys):
     _show_request(ToolRequest(kind="write_file", path="utils.py", content=new), tmp_path)
     out = _plain(capsys)
 
-    assert "Edit utils.py" in out
+    assert "edit utils.py" in out
     assert "-def doomed():" in out  # the deletion is visible
     assert "+2" not in out.split("\n")[1]  # nothing claimed as added
 
@@ -652,8 +652,8 @@ def test_new_file_is_labelled_create_not_edit(tmp_path, capsys):
     _show_request(ToolRequest(kind="write_file", path="fresh.py", content="x = 1\n"), tmp_path)
     out = _plain(capsys)
 
-    assert "Create fresh.py" in out
-    assert "Edit" not in out
+    assert "create fresh.py" in out
+    assert "edit" not in out
 
 
 def test_identical_write_says_no_changes(tmp_path, capsys):
@@ -699,3 +699,61 @@ def test_failed_outcome_is_reported(tmp_path, capsys):
     approve(ToolRequest(kind="write_file", path="../escape.py", content="x"))
 
     assert "escapes the workspace" in _plain(capsys)
+
+
+def test_approval_asks_a_real_question():
+    """A bare yes/no menu does not say what is being decided."""
+    from openswarm.cli.utils import _question_for
+    from openswarm.core.tools import ToolRequest
+
+    assert (
+        _question_for(ToolRequest(kind="write_file", path="a.py")) == "Apply this change to a.py?"
+    )
+    assert "read a.py" in _question_for(ToolRequest(kind="read_file", path="a.py"))
+    assert _question_for(ToolRequest(kind="run_command", command="ls")) == "Run this command?"
+
+
+def test_outcome_symbols_distinguish_success_from_failure(tmp_path, capsys):
+    from openswarm.cli.utils import _show_outcome
+
+    _show_outcome("Wrote a.py (5 bytes).")
+    _show_outcome("Failed: Path escapes the workspace: ../x")
+    out = _plain(capsys)
+
+    assert "+ Wrote a.py" in out
+    assert "x Failed" in out
+
+
+def test_approval_options_are_colour_coded_by_risk():
+    """Approve and refuse should not look the same at a glance."""
+    from openswarm.cli.utils import OPTION_STYLES
+
+    assert OPTION_STYLES[0] == "green"  # yes
+    assert OPTION_STYLES[-1] == "red"  # no
+
+
+def test_share_bar_reflects_the_split():
+    """The token split is the claim this project makes; it should be visible."""
+    from openswarm.cli.utils import _share_bar
+
+    assert _share_bar(0.0).count("█") == 0
+    assert _share_bar(1.0).count("█") == 10
+    assert _share_bar(0.2).count("█") == 2
+
+
+def test_usage_table_shows_each_agent_share(capsys):
+    from openswarm.cli.utils import print_usage_table
+    from openswarm.core.usage import RunUsage, UsageStats
+
+    print_usage_table(
+        RunUsage(
+            entries=[
+                UsageStats("senior", "big", 2000, 500),
+                UsageStats("junior", "small", 7000, 500),
+            ]
+        )
+    )
+    out = _plain(capsys)
+
+    assert "Share" in out
+    assert "25%" in out and "75%" in out

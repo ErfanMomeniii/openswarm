@@ -20,15 +20,14 @@ from openswarm.core.usage import RunUsage
 
 console = Console()
 
+#: Direction, not decoration: outbound work is cyan, returning work is green.
 MESSAGE_COLORS = {
-    "task": "blue",
+    "task": "cyan",
+    "review": "cyan",
+    "question": "cyan",
     "result": "green",
-    "question": "yellow",
-    "answer": "cyan",
-    "review": "magenta",
-    "revision": "white",
-    "discuss": "bright_blue",
-    "agree": "bright_green",
+    "revision": "green",
+    "answer": "green",
 }
 
 
@@ -36,7 +35,7 @@ def make_message_printer() -> Callable[[Message], None]:
     """Return a callback that pretty-prints messages in real-time."""
 
     def _print_message(msg: Message) -> None:
-        color = MESSAGE_COLORS.get(msg.type.value, "white")
+        color = MESSAGE_COLORS.get(msg.type.value, "dim")
         truncated = msg.content[:200] + ("..." if len(msg.content) > 200 else "")
         console.print(
             f"  [{color}]{msg.from_agent} → {msg.to_agent}[/{color}] "
@@ -56,7 +55,7 @@ def make_status_updater(status) -> Callable[[Message], None]:
     def _update(msg: Message) -> None:
         if msg.to_agent in ("user", "system"):
             return
-        status.update(f"[bold yellow]{msg.to_agent}[/bold yellow] working — {msg.type.value}...")
+        status.update(f"[dim]{msg.to_agent} working — {msg.type.value}...[/dim]")
 
     return _update
 
@@ -98,33 +97,39 @@ def print_teams_table(configs: dict[str, Path], loader) -> None:
     console.print(table)
 
 
+def _share_bar(fraction: float, width: int = 10) -> str:
+    """A proportion bar. The token split is the claim this project makes."""
+    filled = round(fraction * width)
+    return "█" * filled + "░" * (width - filled)
+
+
 def print_usage_table(usage: RunUsage) -> None:
     """Print a Rich table summarizing token usage per agent."""
     if not usage.entries:
         return
 
     has_cost = usage.total_cost is not None
+    total = usage.total_tokens or 1
 
-    table = Table(title="Token Usage", show_footer=True)
-    table.add_column("Agent", footer="Total")
-    table.add_column("Model")
+    table = Table(title="Token Usage", show_footer=True, title_style="bold")
+    table.add_column("Agent", footer="Total", style="bold")
+    table.add_column("Model", style="dim")
     table.add_column("Prompt", justify="right", footer=str(usage.total_prompt_tokens))
     table.add_column("Completion", justify="right", footer=str(usage.total_completion_tokens))
     table.add_column("Total", justify="right", footer=str(usage.total_tokens))
+    table.add_column("Share", justify="left", no_wrap=True, min_width=15)
     if has_cost:
-        table.add_column(
-            "Cost",
-            justify="right",
-            footer=f"${usage.total_cost:.4f}",
-        )
+        table.add_column("Cost", justify="right", footer=f"${usage.total_cost:.4f}")
 
     for agent_name, summary in usage.by_agent().items():
+        share = summary.total_tokens / total
         row = [
             agent_name,
             summary.model,
             str(summary.prompt_tokens),
             str(summary.completion_tokens),
             str(summary.total_tokens),
+            f"{_share_bar(share)} {share:>4.0%}",
         ]
         if has_cost:
             cost = summary.cost_usd
@@ -133,6 +138,11 @@ def print_usage_table(usage: RunUsage) -> None:
 
     console.print()
     console.print(table)
+
+
+#: Only the decision itself is coloured: green approves, red refuses, and
+#: "refuse with a note" stays neutral because it is neither.
+OPTION_STYLES = ("green", "green", "", "red")
 
 
 def choose(options: list[str], default: int = 0) -> int | None:
@@ -152,10 +162,11 @@ def choose(options: list[str], default: int = 0) -> int | None:
     def render():
         lines = []
         for i, option in enumerate(options):
+            colour = OPTION_STYLES[i] if i < len(OPTION_STYLES) else ""
             if i == selected[0]:
-                lines.append(("class:selected", f" > {option}\n"))
+                lines.append((f"reverse {colour}", f" > {option} \n"))
             else:
-                lines.append(("", f"   {option}\n"))
+                lines.append((colour, f"   {option}\n"))
         return to_formatted_text(lines)
 
     keys = KeyBindings()
@@ -220,9 +231,7 @@ def _preview_write(request: ToolRequest, workspace: Path) -> None:
 
     if existing is None:
         lines = request.content.splitlines()
-        console.print(
-            f"[bold yellow]Create[/bold yellow] {request.path} [dim]({len(lines)} lines)[/dim]"
-        )
+        console.print(f"[bold]create[/bold] {request.path} [dim]({len(lines)} lines)[/dim]")
         for line in lines[:MAX_PREVIEW_LINES]:
             console.print(f"  [green]+[/green] {line}", highlight=False)
         if len(lines) > MAX_PREVIEW_LINES:
@@ -230,7 +239,7 @@ def _preview_write(request: ToolRequest, workspace: Path) -> None:
         return
 
     if existing == request.content:
-        console.print(f"[bold yellow]Write[/bold yellow] {request.path} [dim](no changes)[/dim]")
+        console.print(f"[bold]write[/bold] {request.path} [dim](no changes)[/dim]")
         return
 
     diff = list(
@@ -239,7 +248,7 @@ def _preview_write(request: ToolRequest, workspace: Path) -> None:
     added = sum(1 for line in diff if line.startswith("+"))
     removed = sum(1 for line in diff if line.startswith("-"))
     console.print(
-        f"[bold yellow]Edit[/bold yellow] {request.path} "
+        f"[bold]edit[/bold] {request.path} "
         f"[dim]([green]+{added}[/green] [red]-{removed}[/red])[/dim]"
     )
     for line in diff[:MAX_PREVIEW_LINES]:
@@ -261,21 +270,30 @@ def _show_request(request: ToolRequest, workspace: Path) -> None:
     if request.kind == "write_file":
         _preview_write(request, workspace)
     elif request.kind == "read_file":
-        console.print(f"[bold yellow]Read[/bold yellow] {request.path}")
+        console.print(f"[bold]read[/bold] {request.path}")
     else:
-        console.print(f"[bold yellow]Run[/bold yellow] {request.command}", highlight=False)
+        console.print(f"[bold]run[/bold] {request.command}", highlight=False)
         console.print(f"  [dim]in {workspace}[/dim]")
+
+
+def _question_for(request: ToolRequest) -> str:
+    """Name the decision being asked for, rather than a bare yes/no."""
+    if request.kind == "write_file":
+        return f"Apply this change to {request.path}?"
+    if request.kind == "read_file":
+        return f"Let the agent read {request.path}?"
+    return "Run this command?"
 
 
 def _show_outcome(outcome: str) -> None:
     """Confirm what actually happened, so approval is not a leap of faith."""
     first = outcome.splitlines()[0] if outcome else ""
     if outcome.startswith("Failed") or outcome.startswith("Refused"):
-        console.print(f"  [red]{first}[/red]\n", highlight=False)
+        console.print(f"  [red]x[/red] [dim]{first}[/dim]\n", highlight=False)
         return
     rest = len(outcome.splitlines()) - 1
     more = f" [dim](+{rest} more lines)[/dim]" if rest > 0 else ""
-    console.print(f"  [green]done[/green] [dim]{first}[/dim]{more}\n", highlight=False)
+    console.print(f"  [green]+[/green] [dim]{first}[/dim]{more}\n", highlight=False)
 
 
 def make_tool_approver(workspace: Path, pause=None, chooser=None) -> Callable[[ToolRequest], str]:
@@ -294,6 +312,7 @@ def make_tool_approver(workspace: Path, pause=None, chooser=None) -> Callable[[T
             return execute_safely(request, workspace)
 
         _show_request(request, workspace)
+        console.print(f"\n[bold]{_question_for(request)}[/bold]")
         options = [
             "Yes",
             f"Yes, and don't ask again for {request.kind} this session",
