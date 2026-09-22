@@ -27,6 +27,15 @@ As lead agent, respond with one of:
   "content": "<your final answer to the user's task>"
 }
 
+When you need details from the user before you can continue, ask with:
+{
+  "action": "ask_user",
+  "questions": [
+    {"question": "<what you need to know>", "options": ["<a likely answer>", "..."]}
+  ]
+}
+Prefer this over asking in prose: the user gets to pick rather than retype.
+
 {
   "action": "question",
   "to": "<agent_name>",
