@@ -189,7 +189,7 @@ def run(
     on_progress = _make_stream_printer() if stream and not quiet else None
 
     if not quiet and on_message is not None and on_progress is None:
-        console.print("\n[bold yellow]Running...[/bold yellow]\n")
+        console.print("\n[dim]running...[/dim]\n")
 
     pauser = StatusPauser()
     on_tool = resolve_tool_approver(no_tools, Path.cwd(), pause=pauser.paused)
@@ -207,7 +207,7 @@ def run(
     except LLMError as e:
         _fail(f"LLM error: {e}")
     except KeyboardInterrupt:
-        err_console.print("\n[yellow]Cancelled.[/yellow]")
+        err_console.print("\n[dim]Cancelled.[/dim]")
         raise typer.Exit(130) from None
 
     if output is not None:
@@ -233,7 +233,7 @@ def _execute(
 ):
     """Run the orchestrator, optionally under a spinner naming the active agent."""
     if show_status:
-        with console.status("[bold yellow]Starting...[/bold yellow]", spinner="dots") as status:
+        with console.status("[dim]starting...[/dim]", spinner="dots") as status:
             if pauser is not None:
                 pauser.status = status  # so an approval prompt can interrupt it
             return asyncio.run(
@@ -266,7 +266,13 @@ def interactive(
 
     from openswarm.cli.interactive import run_interactive
 
-    run_interactive(team_obj, verbose=verbose, on_tool=resolve_tool_approver(no_tools, Path.cwd()))
+    pauser = StatusPauser()
+    run_interactive(
+        team_obj,
+        verbose=verbose,
+        on_tool=resolve_tool_approver(no_tools, Path.cwd(), pause=pauser.paused),
+        pauser=pauser,
+    )
 
 
 @app.command()
@@ -377,8 +383,7 @@ def doctor(
         targets = find_all_configs()
         if not targets:
             console.print(
-                "\n[yellow]No team configs found.[/yellow] "
-                "Run [bold]openswarm init[/bold] to create one."
+                "\n[dim]No team configs found.[/dim] Run [bold]openswarm init[/bold] to create one."
             )
             raise typer.Exit(1)
 
@@ -407,7 +412,7 @@ def doctor(
 
         if check_connection:
             if missing:
-                console.print("  [yellow]⚠ skipping connection check — env vars unset[/yellow]")
+                console.print("  [dim]- skipping connection check: env vars unset[/dim]")
             else:
                 problems += _check_connections(team_config)
 
@@ -462,7 +467,7 @@ def _check_connections(team_config: TeamConfig) -> int:
         else:
             problems += 1
             console.print(f"  [red]✗ {label}:[/red] {error}")
-            console.print(f"      [yellow]hint:[/yellow] {describe_failure(error)}")
+            console.print(f"      [dim]hint: {describe_failure(error)}[/dim]")
     return problems
     return problems
 
@@ -503,7 +508,7 @@ def team_info(
         f"(lead: {tc.workflow.lead}, max_rounds: {tc.workflow.max_rounds})"
     )
     if missing:
-        console.print(f"[yellow]Unset env vars: {', '.join(missing)}[/yellow]")
+        console.print(f"[red]Unset env vars: {', '.join(missing)}[/red]")
 
     table = Table(show_header=True)
     table.add_column("Agent", style="bold")

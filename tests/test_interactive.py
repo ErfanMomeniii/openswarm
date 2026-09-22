@@ -493,3 +493,316 @@ def test_stream_hides_xml_tool_calls():
     """The approval prompt renders these; they should not scroll past as markup."""
     out = _stream(['<minimax:tool_call>\n<invoke name="write_file">\n', "<parameter"])
     assert out == ""
+
+
+# --- the spinner must not fight the approval prompt for the terminal ---
+
+
+def test_pauser_stops_and_restarts_the_thinking_spinner():
+    from openswarm.cli.app import StatusPauser
+    from openswarm.cli.interactive import Thinking
+
+    thinking = Thinking()
+    thinking.show("junior thinking...")
+    pauser = StatusPauser()
+    pauser.status = thinking
+
+    assert thinking._status is not None
+    with pauser.paused():
+        assert thinking._status is None  # terminal handed over to the prompt
+    assert thinking._status is not None  # and handed back
+
+    thinking.hide()
+
+
+def test_approval_prompt_runs_with_the_spinner_paused():
+    """The REPL hung because the spinner kept drawing over the menu."""
+    import pathlib
+
+    from openswarm.cli.app import StatusPauser
+    from openswarm.cli.interactive import Thinking
+    from openswarm.cli.utils import make_tool_approver
+    from openswarm.core.tools import ToolRequest
+
+    thinking = Thinking()
+    thinking.show("junior thinking...")
+    pauser = StatusPauser()
+    pauser.status = thinking
+
+    spinner_during_prompt: list[bool] = []
+
+    def chooser(options):
+        spinner_during_prompt.append(thinking._status is not None)
+        return 3  # No
+
+    approve = make_tool_approver(pathlib.Path("/tmp"), pause=pauser.paused, chooser=chooser)
+    approve(ToolRequest(kind="read_file", path="ali.txt"))
+
+    assert spinner_during_prompt == [False]
+    thinking.hide()
+
+
+def test_interactive_is_given_a_pauser():
+    """A missing pause hook is exactly what caused the hang, so assert the wiring."""
+    import inspect
+
+    from openswarm.cli import app as cli_app
+
+    source = inspect.getsource(cli_app.interactive)
+    assert "pause=pauser.paused" in source
+    assert "pauser=pauser" in source
+
+
+# --- typing while the team works ---
+
+
+def test_typing_is_queued_on_enter():
+    """Characters accumulate, Enter commits the line, Backspace corrects it."""
+    from openswarm.cli.interactive import QueuedInput
+
+    echoed: list[str] = []
+    queue = QueuedInput(on_typing=echoed.append)
+
+    for char in "next taskX":
+        queue.feed(char)
+    queue.feed("\x7f")  # backspace removes the stray X
+    assert echoed[-1] == "next task"
+    assert queue.lines == []  # nothing queued until Enter
+
+    queue.feed("\r")
+    assert queue.lines == ["next task"]
+    assert echoed[-1] == ""  # the line is cleared once queued
+
+
+def test_blank_line_queues_nothing():
+    from openswarm.cli.interactive import QueuedInput
+
+    queue = QueuedInput()
+    queue.feed("\r")
+    queue.feed(" ")
+    queue.feed("\r")
+
+    assert queue.lines == []
+
+
+def test_queue_is_not_started_without_a_terminal(monkeypatch):
+    """Piped sessions have no one typing; a reader would eat the pipe."""
+    import io
+
+    from openswarm.cli.interactive import QueuedInput
+
+    monkeypatch.setattr("openswarm.cli.interactive.sys.stdin", io.StringIO("data\n"))
+    monkeypatch.setattr("openswarm.cli.interactive.sys.stdin.isatty", lambda: False, raising=False)
+
+    queue = QueuedInput()
+    queue.start()
+
+    assert queue._thread is None
+    assert queue.drain() == []
+
+
+def test_pausable_releases_stdin_and_the_spinner_together():
+    """The approval menu needs the terminal to itself, or keystrokes go missing."""
+    from openswarm.cli.interactive import Pausable, QueuedInput, Thinking
+
+    thinking = Thinking()
+    thinking.show("junior thinking...")
+    queue = QueuedInput()
+    both = Pausable(thinking, queue)
+
+    both.stop()
+    assert thinking._status is None
+    assert queue._thread is None
+
+    thinking.hide()
+
+
+def test_queued_lines_survive_a_pause():
+    """Pausing for an approval must not throw away what was already typed."""
+    from openswarm.cli.interactive import QueuedInput
+
+    queue = QueuedInput()
+    queue.lines.append("do the next thing")
+    queue.stop()
+
+    assert queue.drain() == ["do the next thing"]
+
+
+def test_usage_line_reports_elapsed_time():
+    """When you are waiting, how long it took matters as much as what it cost."""
+    from openswarm.cli.interactive import _usage_line
+    from openswarm.core.usage import RunUsage, UsageStats
+
+    line = _usage_line(
+        RunUsage(
+            entries=[
+                UsageStats("a", "m", 10, 5, elapsed_seconds=2.0),
+                UsageStats("b", "m", 10, 5, elapsed_seconds=1.5),
+            ]
+        )
+    )
+
+    assert "3.5s" in line
+    assert "30 tokens" in line
+    assert "\n" not in line
+
+
+def test_usage_line_without_timings_still_reads_well():
+    from openswarm.cli.interactive import _usage_line
+    from openswarm.core.usage import RunUsage, UsageStats
+
+    assert _usage_line(RunUsage(entries=[UsageStats("a", "m", 10, 5)])) == "[dim]15 tokens[/dim]"
+
+
+def test_terminal_settings_are_always_restored(monkeypatch):
+    """Raw mode left on would wreck the user's shell after an error."""
+    import openswarm.cli.interactive as interactive
+
+    restored: list[str] = []
+    monkeypatch.setattr(interactive.termios, "tcgetattr", lambda fd: "original")
+    monkeypatch.setattr(
+        interactive.termios, "tcsetattr", lambda fd, when, value: restored.append(value)
+    )
+    monkeypatch.setattr(interactive.tty, "setcbreak", lambda fd: None)
+    monkeypatch.setattr(interactive.select, "select", lambda *a: (_ for _ in ()).throw(OSError()))
+
+    queue = interactive.QueuedInput()
+    with pytest.raises(OSError):
+        queue._read()
+
+    assert restored == ["original"]
+
+
+def test_reader_gives_up_quietly_when_stdin_is_not_a_terminal(monkeypatch):
+    import openswarm.cli.interactive as interactive
+
+    def no_tty(fd):
+        raise interactive.termios.error("not a tty")
+
+    monkeypatch.setattr(interactive.termios, "tcgetattr", no_tty)
+
+    interactive.QueuedInput()._read()  # must not raise
+
+
+def test_each_agent_keeps_a_stable_colour():
+    """A transcript is only scannable if an agent looks the same every turn."""
+    from openswarm.cli.interactive import AGENT_COLORS, agent_color
+
+    assert agent_color("senior") == agent_color("senior")
+    assert agent_color("senior") in AGENT_COLORS
+    assert agent_color("junior") in AGENT_COLORS
+
+
+def test_handoffs_between_agents_are_shown(capsys):
+    """Watching the team delegate is the point; it used to need -v."""
+    import re
+
+    from openswarm.cli.interactive import _show_handoff
+    from openswarm.core.message import Message, MessageType
+
+    _show_handoff(
+        Message(
+            from_agent="senior",
+            to_agent="junior",
+            type=MessageType.TASK,
+            content="Write the User model",
+        )
+    )
+    out = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
+
+    assert "senior" in out and "junior" in out and "→" in out
+    assert "Write the User model" in out
+
+
+def test_messages_to_the_user_are_not_handoffs(capsys):
+    from openswarm.cli.interactive import _show_handoff
+    from openswarm.core.message import Message, MessageType
+
+    _show_handoff(
+        Message(from_agent="user", to_agent="senior", type=MessageType.TASK, content="hi")
+    )
+    _show_handoff(
+        Message(from_agent="senior", to_agent="user", type=MessageType.RESULT, content="done")
+    )
+
+    assert capsys.readouterr().out == ""
+
+
+def test_long_handoff_content_is_truncated(capsys):
+    import re
+
+    from openswarm.cli.interactive import _show_handoff
+    from openswarm.core.message import Message, MessageType
+
+    _show_handoff(
+        Message(from_agent="a", to_agent="b", type=MessageType.TASK, content="word " * 200)
+    )
+    out = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
+
+    assert "…" in out
+    assert len(out) < 120
+
+
+# --- the first screen ---
+
+
+def _welcome(team, on_tool, capsys) -> str:
+    import re
+
+    from openswarm.cli.interactive import _print_welcome
+
+    _print_welcome(team, on_tool)
+    return re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
+
+
+def test_welcome_names_the_models_you_will_pay_for(team_config: TeamConfig, capsys):
+    out = _welcome(Team(team_config), None, capsys)
+
+    assert "lead" in out
+    for agent in team_config.agents:
+        assert agent.name in out
+        assert agent.model in out
+
+
+def test_welcome_says_where_agents_can_write(team_config: TeamConfig, capsys):
+    """Tools are on by default, so the workspace must be stated up front."""
+    out = _welcome(Team(team_config), lambda request: "", capsys)
+
+    assert "workspace" in out
+    assert "ask first" in out
+
+
+def test_welcome_says_when_actions_are_off(team_config: TeamConfig, capsys):
+    out = _welcome(Team(team_config), None, capsys)
+
+    assert "--no-tools" in out
+
+
+def test_arrow_keys_are_not_queued_as_text():
+    """Arrows reached the reader as escape sequences and queued rubbish: "[A[B"."""
+    from openswarm.cli.interactive import QueuedInput
+
+    queue = QueuedInput()
+    for char in "\x1b[A\x1b[B\x1b[B":  # up, down, down
+        queue.feed(char)
+
+    assert queue._typed == ""
+
+    for char in "real text":
+        queue.feed(char)
+    queue.feed("\r")
+
+    assert queue.lines == ["real text"]
+
+
+def test_question_form_runs_after_the_turn_winds_down():
+    """The form needs stdin to itself; a live spinner or reader breaks it."""
+    import inspect
+
+    from openswarm.cli import interactive
+
+    source = inspect.getsource(interactive.run_interactive)
+    finally_at = source.index("pending.extend(queue.drain())")
+    form_at = source.index("ask_questions(questions_to_ask)")
+
+    assert form_at > finally_at
