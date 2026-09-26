@@ -3,9 +3,23 @@
 All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.3.0]
+
+Agents can now do the work, not just describe it — and the session you watch them work
+in was rebuilt around that.
 
 ### Changed
+- **The session shows the team working.** Delegation handoffs appear as they happen
+  (`senior -> junior  Write the User model`) instead of only under `-v`, each agent keeps
+  a stable colour, and the opening screen names every agent's model, marks the lead, and
+  states the workspace agents can write to.
+- **`/usage` shows the token split as a bar per agent** — the claim this project makes,
+  expensive model deciding and cheap model working, made checkable at a glance. Run
+  summaries now report elapsed time alongside tokens and cost.
+- **Restrained palette.** Colour is used only where it already means something to a
+  developer: green/red for added/removed and ok/failed, two shades to tell agents apart,
+  dim for secondary detail, bold for structure. Yellow is gone — it was carrying four
+  unrelated meanings and reads poorly on light terminals.
 - Interactive mode reworked to feel like a modern coding REPL: results render as
   markdown so code blocks are syntax-highlighted, streaming is on by default,
   prompt history persists across sessions with ghost-text suggestions, `/` completion
@@ -39,6 +53,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
   without editing YAML and restarting.
 - `/retry` re-runs the previous task.
 - `/copy` prints the last result unrendered, for pasting elsewhere.
+- **`ask_user` action**: agents ask for missing details as structured questions with
+  suggested answers, and the CLI turns them into a form — pick an option, type your own,
+  skip, go back, then review and send. Replies that ask in prose are parsed into the same
+  form, so models that ignore the protocol still benefit.
+- **Type while the team works.** Lines typed during a turn are echoed under the spinner
+  and queued, then run when the turn finishes.
+
+### Fixed
+- **Malformed agent replies no longer derail a run.** Tool-trained models answer in XML
+  (`<invoke name="write_file">`) rather than JSON, and truncate mid-object; both are now
+  understood, individual fields are salvaged from broken JSON, and a reply that still
+  cannot be read is sent back for one correction instead of being shown to the user as
+  though it were the answer.
+- A lead agent asking the user a question (`"to": "user"`) crashed the run with
+  `ValueError: Agent 'user' not found`. `delegate` and `review` already guarded unknown
+  targets; `question` did not.
+- With streaming on, answers were printed twice: once live, once re-rendered.
+- Arrow keys pressed during a turn were queued as literal text (`[A[B[B`).
+- The approval menu could hang the REPL — the spinner kept drawing over it while the
+  background input reader competed for the same keystrokes — and crashed with
+  `asyncio.run() cannot be called from a running event loop`, since approvals are
+  requested from inside the orchestrator's loop.
 
 ## [1.2.0]
 

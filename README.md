@@ -87,7 +87,7 @@ openswarm run "task" -q > out.md  # result only, for pipes
 
 With no `-c`/`-t`, OpenSwarm uses the project's single team config; if several exist it lists them rather than guessing.
 
-**Interactive mode** renders markdown, streams answers, and keeps history between sessions. `@file` attaches a file to your task, `!cmd` runs a shell command, and `/help` lists the rest.
+**Interactive mode** renders markdown, streams answers, and keeps history between sessions. `@file` attaches a file to your task, `!cmd` runs a shell command, and `/help` lists the rest. You can keep typing while the team works — lines are queued and run when the turn ends. When an agent needs details, its questions become a menu you pick from rather than prose you retype.
 
 ## Agents acting on your workspace
 
